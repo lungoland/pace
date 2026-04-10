@@ -1,0 +1,16 @@
+{
+  "name": "pace",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "paho-mqttpp3",
+    "nlohmann-json",
+    "fmt",
+    "catch2",
+    {
+      "name": "spdlog",
+      "features": [
+        "fmt"
+      ]
+    }
+  ]
+}

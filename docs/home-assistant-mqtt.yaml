@@ -1,0 +1,42 @@
+# Replace "workstation-01" with your nodeId.
+# This example reflects the current implementation:
+# - command topics: pace/{nodeId}/command/{action}/set
+# - availability topic: pace/{nodeId}/availability
+# - implemented sensor: pace/{nodeId}/sensor/count/state
+mqtt:
+  button:
+    - name: "Pace Lock"
+      command_topic: "pace/workstation-01/command/lock/set"
+      payload_press: ""
+    - name: "Pace Sleep"
+      command_topic: "pace/workstation-01/command/sleep/set"
+      payload_press: ""
+    - name: "Pace Reboot"
+      command_topic: "pace/workstation-01/command/reboot/set"
+      payload_press: ""
+    - name: "Pace Shutdown"
+      command_topic: "pace/workstation-01/command/shutdown/set"
+      payload_press: ""
+    - name: "Pace Ping"
+      command_topic: "pace/workstation-01/command/ping/set"
+      # Ping command expects payload exactly "ping" and responds on /command/ping/status.
+      payload_press: "ping"
+
+    - name: "Pace Stop"
+      command_topic: "pace/workstation-01/command/stop/set"
+      payload_press: ""
+
+  binary_sensor:
+    - name: "Pace Agent Online"
+      unique_id: "pace_agent_online"
+      state_topic: "pace/workstation-01/availability"
+      payload_on: "online"
+      payload_off: "offline"
+      device_class: connectivity
+
+  sensor:
+    - name: "Pace Ping Status"
+      state_topic: "pace/workstation-01/command/ping/status"
+
+    - name: "Pace Count"
+      state_topic: "pace/workstation-01/sensor/count/state"

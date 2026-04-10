@@ -1,0 +1,130 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 22,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "pace-linux",
+      "displayName": "pace linux (Ninja + vcpkg)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_FEATURE_FLAGS": "manifests,versions"
+      }
+    },
+    {
+      "name": "pace-linux-debug",
+      "inherits": "pace-linux",
+      "displayName": "pace linux debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "pace-linux-static",
+      "inherits": "pace-linux",
+      "displayName": "pace linux static",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PACE_ENABLE_STATIC_LINKING": "ON"
+      }
+    },
+    {
+      "name": "pace-windows",
+      "inherits": "pace-linux",
+      "displayName": "pace windows (MinGW cross-compile)",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "CMAKE_SYSTEM_NAME": "Windows",
+        "CMAKE_C_COMPILER": "x86_64-w64-mingw32-gcc",
+        "CMAKE_CXX_COMPILER": "x86_64-w64-mingw32-g++",
+        "VCPKG_TARGET_TRIPLET": "x64-mingw-dynamic",
+        "VCPKG_HOST_TRIPLET": "x64-linux"
+      }
+    },
+    {
+      "name": "pace-windows-static",
+      "inherits": "pace-windows",
+      "displayName": "pace windows static (MinGW cross-compile)",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-mingw-static"
+      }
+    },
+    {
+      "name": "pace-windows-debug",
+      "inherits": "pace-windows",
+      "displayName": "pace windows debug (MinGW cross-compile)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "pace-windows-static-debug",
+      "inherits": "pace-windows-static",
+      "displayName": "pace windows static debug (MinGW cross-compile)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "pace-linux",
+      "configurePreset": "pace-linux"
+    },
+    {
+      "name": "pace-linux-debug",
+      "configurePreset": "pace-linux-debug"
+    },
+    {
+      "name": "pace-linux-static",
+      "configurePreset": "pace-linux-static"
+    },
+    {
+      "name": "pace-windows",
+      "configurePreset": "pace-windows"
+    },
+    {
+      "name": "pace-windows-static",
+      "configurePreset": "pace-windows-static"
+    },
+    {
+      "name": "pace-windows-debug",
+      "configurePreset": "pace-windows-debug"
+    },
+    {
+      "name": "pace-windows-static-debug",
+      "configurePreset": "pace-windows-static-debug"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "pace-linux",
+      "configurePreset": "pace-linux",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "pace-linux-debug",
+      "configurePreset": "pace-linux-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

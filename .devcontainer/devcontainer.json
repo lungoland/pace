@@ -1,0 +1,37 @@
+{
+  "name": "pace",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "runArgs": [
+    "--cap-add=SYS_PTRACE",
+    "--security-opt=seccomp=unconfined"
+  ],
+  "remoteUser": "vscode",
+  "containerEnv": {
+    "VCPKG_ROOT": "/opt/vcpkg"
+  },
+  "mounts": [
+    "source=pace-vcpkg,target=/opt/vcpkg,type=volume"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools"
+      ],
+      "settings": {
+        "cmake.configureOnOpen": true,
+        "cmake.configurePreset": "pace",
+        "cmake.buildPreset": "pace",
+        "cmake.defaultBuildPreset": "pace",
+        "cmake.defaultTestPreset": "pace",
+        "cmake.defaultLaunchTarget": "pace",
+        "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+        "cmake.useCMakePresets": "always"
+      }
+    }
+  },
+  "postCreateCommand": "bash -lc 'sudo mkdir -p /opt/vcpkg && sudo chown -R vscode:vscode /opt/vcpkg && if [ ! -x /opt/vcpkg/vcpkg ]; then if [ -d /opt/vcpkg/.git ]; then git -C /opt/vcpkg pull --ff-only; else git clone https://github.com/microsoft/vcpkg /opt/vcpkg; fi && /opt/vcpkg/bootstrap-vcpkg.sh -disableMetrics; fi && cmake --preset pace --fresh'"
+}
