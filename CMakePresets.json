@@ -53,7 +53,9 @@
         "CMAKE_C_COMPILER": "x86_64-w64-mingw32-gcc",
         "CMAKE_CXX_COMPILER": "x86_64-w64-mingw32-g++",
         "VCPKG_TARGET_TRIPLET": "x64-mingw-dynamic",
-        "VCPKG_HOST_TRIPLET": "x64-linux"
+        "VCPKG_HOST_TRIPLET": "x64-linux",
+        "VCPKG_APPLOCAL_DEPS": "OFF",
+        "PACE_BUILD_TESTS": "OFF"
       }
     },
     {

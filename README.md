@@ -47,6 +47,30 @@ Eventually a Home-Assistant discovery payload will be implemented.
 
 ## Build
 
+### Install dependencies
+
+The CMake presets expect `cmake`, `ninja`, a C++ toolchain, and a `vcpkg` checkout exposed through `VCPKG_ROOT`.
+
+For native Linux builds on Ubuntu/Debian:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y build-essential cmake ninja-build pkg-config git curl zip unzip tar
+git clone https://github.com/microsoft/vcpkg.git /opt/vcpkg
+/opt/vcpkg/bootstrap-vcpkg.sh
+export VCPKG_ROOT=/opt/vcpkg
+```
+
+For Windows cross-compilation from Linux, install the MinGW toolchain as well:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+export VCPKG_ROOT=/opt/vcpkg
+```
+
+Project libraries are resolved from `vcpkg.json` during `cmake --preset ...`, so no separate package install step is required after this host setup.
+
 ### In devcontainer (recommended)
 
 1. Open folder in VS Code.
@@ -66,7 +90,10 @@ Set `VCPKG_ROOT` to your vcpkg checkout, then:
 ```bash
 cmake --preset pace-linux
 cmake --build --preset pace-linux
+cmake --install build/pace-linux --prefix dist/pace-linux
 ```
+
+The install tree is written to `dist/pace-linux/`.
 
 ### Portable Linux build
 
@@ -75,6 +102,7 @@ If the target machine has an older `libstdc++`, use:
 ```bash
 cmake --preset pace-linux-static
 cmake --build --preset pace-linux-static
+cmake --install build/pace-linux-static --prefix dist/pace-linux-static
 ```
 
 This statically links `libstdc++` and `libgcc` into `pace`.
@@ -84,7 +112,10 @@ This statically links `libstdc++` and `libgcc` into `pace`.
 ```bash
 cmake --preset pace-windows-static
 cmake --build --preset pace-windows-static
+cmake --install build/pace-windows-static --prefix dist/pace-windows-static
 ```
+
+The install tree is written to `dist/pace-windows-static/`. For Windows cross-builds, the install step stages `pace.exe` together with the required vcpkg and MinGW runtime DLLs.
 
 ## Runtime configuration
 

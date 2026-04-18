@@ -3,10 +3,12 @@
 #include <fmt/format.h>
 
 #define WIN32_LEAN_AND_MEAN
-#include <powrprof.h>
 #include <windows.h>
+#include <powrprof.h>
 
+#ifdef _MSC_VER
 #pragma comment( lib, "PowrProf.lib" )
+#endif
 
 namespace pace
 {

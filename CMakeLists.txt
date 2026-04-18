@@ -14,6 +14,7 @@ option(PACE_ENABLE_STATIC_LINKING "Enable fully static linking (all libraries)" 
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerWarnings)
+include(GNUInstallDirs)
 
 find_package(PahoMqttCpp CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
@@ -66,6 +67,10 @@ target_link_libraries(pace_core
         spdlog::spdlog
 )
 
+if(WIN32)
+    target_link_libraries(pace_core PUBLIC powrprof)
+endif()
+
 add_executable(pace src/common/main.cpp)
 target_link_libraries(pace PRIVATE pace::core)
 
@@ -74,6 +79,54 @@ if(PACE_ENABLE_STATIC_LINKING AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_link_options(pace PRIVATE -static -static-libstdc++ -static-libgcc)
 elseif(PACE_STATIC_GNU_RUNTIME AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_link_options(pace PRIVATE -static-libstdc++ -static-libgcc)
+endif()
+
+install(TARGETS pace
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+if(WIN32)
+    install(FILES $<TARGET_RUNTIME_DLLS:pace>
+        TYPE BIN
+    )
+
+    if(DEFINED VCPKG_TARGET_TRIPLET)
+        file(GLOB PACE_VCPKG_RUNTIME_DLLS
+            "${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/bin/*.dll"
+        )
+
+        if(PACE_VCPKG_RUNTIME_DLLS)
+            install(FILES ${PACE_VCPKG_RUNTIME_DLLS}
+                TYPE BIN
+            )
+        endif()
+    endif()
+
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        set(PACE_MINGW_RUNTIME_DLL_NAMES
+            libstdc++-6.dll
+            libgcc_s_seh-1.dll
+        )
+        set(PACE_MINGW_RUNTIME_DLLS)
+
+        foreach(pace_runtime_dll IN LISTS PACE_MINGW_RUNTIME_DLL_NAMES)
+            execute_process(
+                COMMAND ${CMAKE_CXX_COMPILER} -print-file-name=${pace_runtime_dll}
+                OUTPUT_VARIABLE pace_runtime_dll_path
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+            )
+
+            if(NOT pace_runtime_dll_path OR pace_runtime_dll_path STREQUAL pace_runtime_dll)
+                message(FATAL_ERROR "Failed to locate MinGW runtime DLL: ${pace_runtime_dll}")
+            endif()
+
+            list(APPEND PACE_MINGW_RUNTIME_DLLS "${pace_runtime_dll_path}")
+        endforeach()
+
+        install(FILES ${PACE_MINGW_RUNTIME_DLLS}
+            TYPE BIN
+        )
+    endif()
 endif()
 
 if(PACE_BUILD_TESTS)
