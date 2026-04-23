@@ -1,15 +1,15 @@
 #pragma once
 
-#include "pace/commands/TypedCommand.hpp"
+#include "pace/commands/BaseCommand.hpp"
 
 namespace pace::commands
 {
    /// @brief Simple command that responds to "ping" with "pong".
-   class PingCommand : public TypedCommand<std::string, std::string>
+   class PingCommand : public BaseCommand<std::string, std::string>
    {
       public:
 
-         using TypedCommand::TypedCommand;
+         using BaseCommand::BaseCommand;
 
          std::string name() const override
          {

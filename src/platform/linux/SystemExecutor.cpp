@@ -1,4 +1,5 @@
-#include "pace/SystemExecutor.hpp"
+#include "pace/commands/SystemExecutor.hpp"
+#include "pace/sensors/SensorProvider.hpp"
 
 #include <fmt/format.h>
 
@@ -12,7 +13,7 @@
 
 extern char** environ;
 
-namespace pace
+namespace pace::commands::impl
 {
    namespace
    {
@@ -77,4 +78,24 @@ namespace pace
       return util::unexpected{ "unsupported action" };
    }
 
-} // namespace pace
+   util::expected<bool, std::string> killProcessByName( const std::string& processName )
+   {
+      auto pids = sensors::impl::findPidsByName( processName );
+      for( auto pid : pids )
+      {
+         kill( static_cast<pid_t>( pid ), SIGTERM );
+      }
+
+      if( ! pids.empty() )
+      {
+         return true;
+      }
+      return util::unexpected{ fmt::format( "no process found with name '{}'", processName ) };
+   }
+
+   util::expected<bool, std::string> sendNotification( const std::string& message )
+   {
+      return spawnAndWait( { "notify-send", "-a", "Pace", message }, "send notification" );
+   }
+
+} // namespace pace::commands::impl

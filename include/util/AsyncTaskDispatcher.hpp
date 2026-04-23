@@ -99,15 +99,14 @@ namespace util
             co_return true;
          }
 
-         Task<bool> stop()
+         void stop()
          {
             if( stopRequested.exchange( true, std::memory_order_acq_rel ) )
             {
-               co_return true;
+               return;
             }
 
             queue.close();
-            co_return true;
          }
 
       private:

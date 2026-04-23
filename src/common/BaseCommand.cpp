@@ -11,11 +11,11 @@
 
 namespace pace::commands
 {
-   BaseCommand::BaseCommand( MqttService& mqttService )
+   CommandInterface::CommandInterface( MqttService& mqttService )
       : mqtt( mqttService )
    {}
 
-   util::Task<bool> BaseCommand::subscribe() const
+   util::Task<bool> CommandInterface::subscribe() const
    {
       co_await mqtt.subscribe( fmt::format( "command/{}/set", name() ),
                                [ this ]( mqtt::const_message_ptr msg ) -> util::Task<bool>
@@ -26,7 +26,7 @@ namespace pace::commands
       co_return true;
    }
 
-   util::Task<bool> BaseCommand::handleResponse( ResponseType response ) const
+   util::Task<bool> CommandInterface::handleResponse( ResponseType response ) const
    {
       if( ! response )
       {

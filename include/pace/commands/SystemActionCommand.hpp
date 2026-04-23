@@ -1,28 +1,29 @@
 #pragma once
 
-#include "pace/SystemExecutor.hpp"
-#include "pace/commands/TypedCommand.hpp"
+#include "pace/commands/BaseCommand.hpp"
+#include "pace/commands/SystemExecutor.hpp"
 
 #include <string>
 #include <utility>
 
 namespace pace::commands
 {
+   /// @brief Executes a system action such as lock, sleep, reboot, or shutdown.
    template <SystemAction Action>
-   class SystemActionCommand : public TypedCommand<>
+   class SystemActionCommand : public BaseCommand<>
    {
       public:
 
-         using TypedCommand::TypedCommand;
+         using BaseCommand::BaseCommand;
 
          std::string name() const override
          {
-            return std::string{ pace::actionName( Action ) };
+            return std::string{ actionName( Action ) };
          }
 
          util::Task<ResponseType> execute( NoArgs ) const override
          {
-            auto ok = pace::executeSystemAction( Action );
+            auto ok = impl::executeSystemAction( Action );
             if( ! ok )
             {
                co_return util::unexpected{ ok.error() };

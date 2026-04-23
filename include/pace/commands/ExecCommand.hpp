@@ -1,15 +1,15 @@
 #pragma once
 
-#include "pace/commands/TypedCommand.hpp"
+#include "pace/commands/BaseCommand.hpp"
 
 namespace pace::commands
 {
    /// @brief Legacy placeholder kept to make arbitrary shell execution unavailable by default.
-   class ExecCommand : public TypedCommand<NoResponse, std::string>
+   class ExecCommand : public BaseCommand<NoResponse, std::string>
    {
       public:
 
-         using TypedCommand::TypedCommand;
+         using BaseCommand::BaseCommand;
 
          std::string name() const override
          {

@@ -93,11 +93,6 @@ namespace pace
    }
 
 
-   util::Task<bool> MqttService::publish( const std::string& topic, std::string payload )
-   {
-      return publish( topic, std::move( payload ), false );
-   }
-
    util::Task<bool> MqttService::publish( const std::string& topic, std::string payload, bool retained )
    {
       auto fqTopic = fmt::format( "{}{}", baseTopic, topic );

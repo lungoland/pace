@@ -1,6 +1,6 @@
-#include "pace/SystemExecutor.hpp"
+#include "pace/commands/SystemExecutor.hpp"
 
-namespace pace
+namespace pace::commands
 {
 
    std::string_view actionName( SystemAction action )

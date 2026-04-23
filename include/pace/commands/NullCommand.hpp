@@ -1,15 +1,15 @@
 #pragma once
 
-#include "pace/commands/TypedCommand.hpp"
+#include "pace/commands/BaseCommand.hpp"
 
 namespace pace::commands
 {
    /// @brief No-op command for testing and as a template for new commands.
-   class NullCommand : public TypedCommand<>
+   class NullCommand : public BaseCommand<>
    {
       public:
 
-         using TypedCommand::TypedCommand;
+         using BaseCommand::BaseCommand;
 
          std::string name() const override
          {

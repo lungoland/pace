@@ -27,8 +27,8 @@ set(PACE_CORE_COMMON_SOURCES
     src/common/MqttService.cpp
     src/common/BaseCommand.cpp
     src/common/BaseSensor.cpp
-    src/common/SensorTimer.cpp
     src/common/SystemExecutor.cpp
+    src/common/SensorFactory.cpp
 )
 
 if(WIN32)

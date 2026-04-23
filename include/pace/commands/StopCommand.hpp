@@ -1,16 +1,16 @@
 #pragma once
 
-#include "pace/commands/TypedCommand.hpp"
+#include "pace/commands/BaseCommand.hpp"
 
 namespace pace::commands
 {
    /// @brief Simple command that stops the service.
-   class StopCommand : public TypedCommand<>
+   class StopCommand : public BaseCommand<>
    {
       public:
 
          StopCommand( MqttService& mqttService, pace::Pace& pace )
-            : TypedCommand( mqttService )
+            : BaseCommand( mqttService )
             , service( pace )
          {}
 
