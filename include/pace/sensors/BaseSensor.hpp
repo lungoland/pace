@@ -129,6 +129,13 @@ namespace pace::sensors
          /// @return The fetched sensor data as the specific type T.
          virtual util::Task<T> fetch() const = 0;
 
+         /// @brief Get the MQTT discovery type for this sensor based on the data type T.
+         /// @return The MQTT discovery type as a string; only supported values are "binary_sensor" for bool and "sensor" for all other types.
+         constexpr const char* sensorType() const
+         {
+            return std::same_as<T, bool> ? "binary_sensor" : "sensor";
+         }
+
       protected:
 
          const TConfig& config;

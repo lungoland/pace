@@ -50,12 +50,19 @@ namespace pace
          /// @brief Factory for creating sensors based on MQTT configuration topics.
          pace::SensorFactory sensorFactory;
 
+         /// TODO: HA MQTT Type specifics?
+         ///       button, binary_sensor, sensor, switch, notify
+         ///       "switch" would be sensor + command combined
+         ///
+         ///   switch, sensor, binary_sensor: "SensorInterface"
+         ///   switch, button, notify: "CommandInterface"
 
          /// @brief List of available commands that the service can execute based on MQTT messages.
          std::vector<pace::commands::CommandPtr> commands;
          /// @brief List of active sensors which are scheduled periodically.
-         /// Unfortunately as shared_ptr because scheduler runs in a different thread and when
-         /// removing, the sensor is immediately removed from the list but might still be running in the scheduler.
-         std::vector<std::shared_ptr<pace::sensors::SensorInterface>> sensors;
+         /// TODO: crashes when removing sensors ... shared_ptr could be a fix but
+         ///       causes sensors to stay alive ... for some reasons
+         ///  ...  basically a issue when removed when currently executing ...
+         std::vector<std::shared_ptr<sensors::SensorInterface>> sensors;
    };
 } // namespace pace

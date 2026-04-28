@@ -14,6 +14,36 @@
 
 namespace
 {
+   template <typename TSensor>
+   void publishDiscovery( pace::MqttService&, const TSensor& sensor )
+   {
+      auto           node              = fmt::format( "pace-node" ); // todo config
+      auto           sensorID          = fmt::format( "{}_{}", node, sensor.name() );
+      auto           availabilityTopic = fmt::format( "pace/{}/availability", node );
+      auto           stateTopc         = fmt::format( "pace/{}/sensor/{}/state", node, sensor.name() );
+      nlohmann::json discoveryMsg{
+         { "name",         sensor.name()                          },
+         { "unique_id",    sensorID                               },
+         { "device",
+          {
+              { "identifiers", std::array{ sensorID } },
+              { "name", sensor.name() },
+              { "model", "pace sensor" }, // depends on sensor impl :/
+              { "manufacturer", "pace" },
+           }                                                      },
+         { "device_class", "running"                              }, // depends on sensor impl :/
+         { "availability", { { { "topic", availabilityTopic } } } },
+         { "state_topic",  stateTopc                              },
+         { "payload_on",   "1"                                    }, // depends on sensor type :/
+         { "payload_off",  "0"                                    }, // depends on sensor type :/
+      };
+
+      auto topic = fmt::format( "homeassistant/{}/{}/config", sensor.sensorType(), sensorID );
+      spdlog::info( "Publishing discovery topic {}: {}", topic, discoveryMsg.dump() );
+
+      // homeassistant/binary_sensor/0x54ef441000497370/occupancy/config
+      // mqtt.publish( fmt::format( "/homeassistant/{}/{}/config", sensor.sensorType(), sensor.name() ), discoveryMsg.dump(), false );
+   }
 
    template <typename T>
    std::optional<T> fromChars( const std::string& str )
@@ -39,7 +69,9 @@ namespace
       {
          auto cfg = std::make_unique<TConfig>();
          config.get_to( *cfg );
-         return std::make_unique<T>( mqtt, std::move( cfg ) );
+         auto ptr = std::make_unique<T>( mqtt, std::move( cfg ) );
+         publishDiscovery( mqtt, *ptr );
+         return ptr;
       }
       catch( const nlohmann::json::exception& e )
       {
@@ -140,7 +172,6 @@ namespace pace
          /// easy and works ..
          /// I liked the queue back to pace which is polling the queue
          /// but that does not work with current co-routine setup :(
-         /// GameSensor does have problems with reload ... why is still unclear.
          pace.addSensor( std::move( sensor ) );
       }
    }

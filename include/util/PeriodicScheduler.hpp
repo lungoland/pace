@@ -18,6 +18,8 @@
 
 namespace util
 {
+   /// @brief A scheduler for managing periodic execution of tasks.
+   /// TODO: create cpp file .. i guess
    class PeriodicScheduler
    {
       public:
@@ -46,7 +48,10 @@ namespace util
 
          void addJob( Job job )
          {
+            /// potential race condition with wake up and re-add job
+            /// so we either add some id to the same name or sync somehow
             std::lock_guard lock{ mutex_ };
+            spdlog::trace( "Add Job: {}", job.name );
             jobs_.push_back( std::move( job ) );
             wakeSource_.request_stop();
          }
@@ -54,7 +59,8 @@ namespace util
          void removeJob( std::string_view name )
          {
             std::lock_guard lock{ mutex_ };
-            jobs_.erase( std::remove_if( jobs_.begin(), jobs_.end(), [ & ]( const Job& j ) { return j.name == name; } ), jobs_.end() );
+            spdlog::trace( "Remove Job: {}", name );
+            std::erase_if( jobs_, [ & ]( const Job& j ) { return j.name == name; } );
             wakeSource_.request_stop();
          }
 
@@ -80,116 +86,135 @@ namespace util
          /// TODO split run into smaller functions .. I think
          void run( std::stop_token stopToken )
          {
-            sync_wait(
-               [ this, stopToken ]() -> Task<bool>
-               {
-                  using Clock = std::chrono::steady_clock;
-
-                  struct JobSchedule
+            try
+            {
+               sync_wait(
+                  [ this, stopToken ]() -> Task<bool>
                   {
-                        std::string                 name;
-                        std::chrono::milliseconds   interval{};
-                        Clock::time_point           nextDue{};
-                        std::function<Task<bool>()> execute;
-                  };
-
-                  std::vector<JobSchedule> schedules;
-
-                  while( ! stopToken.stop_requested() )
-                  {
-                     std::stop_token wakeToken;
+                     std::vector<JobSchedule> schedules;
+                     while( ! stopToken.stop_requested() )
                      {
-                        std::lock_guard lock{ mutex_ };
-
-                        // Remove schedules whose jobs were deleted
-                        schedules.erase(
-                           std::remove_if(
-                              schedules.begin(), schedules.end(), [ & ]( const JobSchedule& s )
-                              { return std::none_of( jobs_.begin(), jobs_.end(), [ & ]( const Job& j ) { return j.name == s.name; } ); } ),
-                           schedules.end() );
-
-                        // Add schedules for newly added jobs
-                        const auto now = Clock::now();
-                        for( const auto& job : jobs_ )
+                        std::stop_token wakeToken = syncSchedules( schedules );
+                        if( schedules.empty() )
                         {
-                           const bool exists = std::any_of( schedules.begin(), schedules.end(),
-                                                            [ & ]( const JobSchedule& s ) { return s.name == job.name; } );
-                           if( ! exists )
-                           {
-                              auto interval = job.interval;
-                              if( interval <= std::chrono::milliseconds{ 0 } )
-                              {
-                                 spdlog::warn( "Job '{}' reported non-positive interval ({}ms), clamping to 1s", job.name,
-                                               interval.count() );
-                                 interval = std::chrono::seconds{ 1 };
-                              }
-                              schedules.push_back( JobSchedule{
-                                 .name     = job.name,
-                                 .interval = interval,
-                                 .nextDue  = now + interval,
-                                 .execute  = job.execute,
-                              } );
-                           }
-                        }
-
-                        // Reset wake signal for next sleep
-                        wakeSource_ = std::stop_source{};
-                        wakeToken   = wakeSource_.get_token();
-                     }
-
-                     if( schedules.empty() )
-                     {
-                        std::stop_source   combined;
-                        std::stop_callback cb1( stopToken, [ &combined ] { combined.request_stop(); } );
-                        std::stop_callback cb2( wakeToken, [ &combined ] { combined.request_stop(); } );
-                        co_await sleep_for( std::chrono::seconds{ 1 }, combined.get_token() );
-                        continue;
-                     }
-
-                     const auto nextIt = std::min_element( schedules.begin(), schedules.end(),
-                                                           []( const JobSchedule& lhs, const JobSchedule& rhs )
-                                                           { return lhs.nextDue < rhs.nextDue; } );
-
-                     const auto now = Clock::now();
-                     if( nextIt != schedules.end() && nextIt->nextDue > now )
-                     {
-                        std::stop_source   combined;
-                        std::stop_callback cb1( stopToken, [ &combined ] { combined.request_stop(); } );
-                        std::stop_callback cb2( wakeToken, [ &combined ] { combined.request_stop(); } );
-                        co_await sleep_for( nextIt->nextDue - now, combined.get_token() );
-                     }
-
-                     if( stopToken.stop_requested() )
-                     {
-                        break;
-                     }
-
-                     const auto              fireTime = Clock::now();
-                     std::vector<Task<bool>> dueWork;
-
-                     for( auto& entry : schedules )
-                     {
-                        if( entry.nextDue > fireTime )
-                        {
+                           std::stop_source   combined;
+                           std::stop_callback cb1( stopToken, [ &combined ] { combined.request_stop(); } );
+                           std::stop_callback cb2( wakeToken, [ &combined ] { combined.request_stop(); } );
+                           co_await sleep_for( std::chrono::seconds{ 1 }, combined.get_token() );
                            continue;
                         }
 
-                        dueWork.emplace_back( entry.execute() );
-                        do
+                        const auto nextIt = std::min_element( std::begin( schedules ), std::end( schedules ),
+                                                              []( const JobSchedule& lhs, const JobSchedule& rhs )
+                                                              { return lhs.nextDue < rhs.nextDue; } );
+
+                        const auto now = Clock::now();
+                        if( nextIt != std::end( schedules ) && nextIt->nextDue > now )
                         {
-                           entry.nextDue += entry.interval;
+                           std::stop_source   combined;
+                           std::stop_callback cb1( stopToken, [ &combined ] { combined.request_stop(); } );
+                           std::stop_callback cb2( wakeToken, [ &combined ] { combined.request_stop(); } );
+                           co_await sleep_for( nextIt->nextDue - now, combined.get_token() );
                         }
-                        while( entry.nextDue <= fireTime );
+
+                        if( stopToken.stop_requested() )
+                        {
+                           spdlog::info( "PeriodicScheduler stopping..." );
+                           break;
+                        }
+
+                        if( wakeToken.stop_requested() )
+                        {
+                           spdlog::trace( "PeriodicScheduler woke up early due to job changes, recalculating schedules..." );
+                           continue;
+                        }
+
+                        const auto              fireTime = Clock::now();
+                        std::vector<Task<bool>> dueWork;
+
+                        for( auto& entry : schedules )
+                        {
+                           if( entry.nextDue > fireTime )
+                           {
+                              continue;
+                           }
+
+                           /// TODO: Could be a race condition if the job is removed after execute() but before
+                           /// running task using co_await ...
+                           dueWork.emplace_back( entry.execute() );
+                           do
+                           {
+                              entry.nextDue += entry.interval;
+                           }
+                           while( entry.nextDue <= fireTime );
+                        }
+
+                        if( ! dueWork.empty() )
+                        {
+                           co_await all( std::move( dueWork ) );
+                        }
                      }
 
-                     if( ! dueWork.empty() )
-                     {
-                        co_await all( std::move( dueWork ) );
-                     }
+                     co_return true;
+                  }() );
+            }
+            catch( const std::exception& ex )
+            {
+               spdlog::error( "PeriodicScheduler encountered an exception: {}", ex.what() );
+            }
+            catch( ... )
+            {
+               spdlog::error( "PeriodicScheduler encountered an unknown non-std exception" );
+            }
+         }
+
+         using Clock = std::chrono::steady_clock;
+         struct JobSchedule
+         {
+               const Job*                  job{ nullptr };
+               std::chrono::milliseconds   interval{};
+               Clock::time_point           nextDue{};
+               std::function<Task<bool>()> execute;
+         };
+         std::stop_token syncSchedules( std::vector<JobSchedule>& schedules )
+         {
+            std::lock_guard lock{ mutex_ };
+            // Remove schedules whose jobs were deleted
+            // If the job was re-added before this could run, it will not be detected and we will leak sensors!
+            auto removed = std::erase_if(
+               schedules, [ & ]( const JobSchedule& s )
+               { return std::none_of( std::begin( jobs_ ), std::end( jobs_ ), [ & ]( const Job& j ) { return &j == s.job; } ); } );
+            if( removed > 0 )
+            {
+               spdlog::trace( "Removed {} schedules for deleted jobs", removed );
+            }
+
+            // Add schedules for newly added jobs
+            const auto now = Clock::now();
+            for( const auto& job : jobs_ )
+            {
+               const bool exists = std::any_of( std::begin( schedules ), std::end( schedules ),
+                                                [ & ]( const JobSchedule& s ) { return s.job == &job; } );
+               if( ! exists )
+               {
+                  auto interval = job.interval;
+                  if( interval <= std::chrono::milliseconds{ 0 } )
+                  {
+                     spdlog::warn( "Job '{}' reported non-positive interval ({}ms), clamping to 1s", job.name, interval.count() );
+                     interval = std::chrono::seconds{ 1 };
                   }
+                  schedules.push_back( JobSchedule{
+                     .job      = &job,
+                     .interval = interval,
+                     .nextDue  = now + interval,
+                     .execute  = job.execute,
+                  } );
+               }
+            }
 
-                  co_return true;
-               }() );
+            // Reset wake signal for next sleep
+            wakeSource_ = std::stop_source{};
+            return wakeSource_.get_token();
          }
 
          std::mutex       mutex_{};

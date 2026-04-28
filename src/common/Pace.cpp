@@ -78,8 +78,8 @@ namespace pace
 
    void Pace::removeSensor( const std::string& sensorName )
    {
-      auto it = std::find_if( sensors.begin(), sensors.end(), [ & ]( const auto& s ) { return s->name() == sensorName; } );
-      if( it == sensors.end() )
+      auto it = std::ranges::find_if( sensors, [ & ]( const auto& s ) { return s->name() == sensorName; } );
+      if( it == std::end( sensors ) )
       {
          return;
       }

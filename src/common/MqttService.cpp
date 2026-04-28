@@ -95,7 +95,7 @@ namespace pace
 
    util::Task<bool> MqttService::publish( const std::string& topic, std::string payload, bool retained )
    {
-      auto fqTopic = fmt::format( "{}{}", baseTopic, topic );
+      auto fqTopic = topic.starts_with( '/' ) ? topic.substr( 1 ) : fmt::format( "{}{}", baseTopic, topic );
       spdlog::debug( "<-- {}: {}", fqTopic, payload );
       co_await client.publish( fqTopic, payload, config.qos, retained );
       co_return true;
