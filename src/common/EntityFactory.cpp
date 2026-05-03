@@ -15,6 +15,8 @@
 #include "pace/sensors/GameSensor.hpp"
 #include "pace/sensors/ProcSensor.hpp"
 
+#include "pace/switches/ProcessSwitch.hpp"
+
 #include <mqtt/topic_matcher.h>
 #include <spdlog/spdlog.h>
 
@@ -65,13 +67,10 @@ namespace
    /// Registry keyed by subtype.
    using EntityCreator = std::function<pace::entities::EntityPtr( pace::Pace&, pace::MqttService&, const nlohmann::json& )>;
    const std::map<std::string, EntityCreator> entityCreators{
-      { "count", tryBuildEntity<pace::sensors::CountSensor, pace::sensors::config::BaseSensorConfig> },
+      { "count", tryBuildEntity<pace::sensors::CountSensor, pace::entities::config::EntityConfig> },
       { "game", tryBuildEntity<pace::sensors::GameSensor, pace::sensors::config::GameSensorConfig> },
 
-      /** merge these into a switch: */
-      { "exec", tryBuildEntity<pace::commands::ExecCommand> },
-      { "proc", tryBuildEntity<pace::sensors::ProcSensor, pace::sensors::config::ProcSensorConfig> },
-      { "kill", tryBuildEntity<pace::commands::KillCommand> },
+      { "proc", tryBuildEntity<pace::switches::ProcessSwitch, pace::switches::config::ProcessSwitchConfig> },
 
       { "null", tryBuildEntity<pace::commands::NullCommand> },
       { "ping", tryBuildEntity<pace::commands::PingCommand> },

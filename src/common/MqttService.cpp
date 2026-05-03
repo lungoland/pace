@@ -93,7 +93,7 @@ namespace pace
    }
 
 
-   util::Task<bool> MqttService::publish( std::string topic, std::string payload, bool retained )
+   util::Task<bool> MqttService::publish( const std::string& topic, std::string payload, bool retained )
    {
       auto fqTopic = qualifyTopic( topic );
       spdlog::debug( "<-- {}: {}", fqTopic, payload );

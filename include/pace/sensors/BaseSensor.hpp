@@ -12,60 +12,16 @@
 #include <string>
 #include <type_traits>
 
-
-/// TODO: move into own class
-namespace nlohmann
-{
-   template <>
-   struct adl_serializer<std::chrono::milliseconds>
-   {
-         static void to_json( nlohmann::json& j, const std::chrono::milliseconds& ms )
-         {
-            j = ms.count();
-         }
-
-         static void from_json( const nlohmann::json& j, std::chrono::milliseconds& ms )
-         {
-            ms = std::chrono::milliseconds( j.get<long long>() );
-         }
-   };
-}
-
 namespace pace::sensors
 {
-   namespace config
-   {
-      struct BaseSensorConfig
-      {
-            std::string               name;
-            std::chrono::milliseconds interval = std::chrono::milliseconds{ 5000 };
-      };
-
-      // Custom serialization for BaseSensorConfig: 'name' is required, 'interval' has a default
-      inline void to_json( nlohmann::json& j, const BaseSensorConfig& cfg )
-      {
-         j[ "name" ]     = cfg.name;
-         j[ "interval" ] = cfg.interval;
-      }
-
-      inline void from_json( const nlohmann::json& j, BaseSensorConfig& cfg )
-      {
-         cfg.name = j.at( "name" ).get<std::string>(); // required: throws if missing
-         if( j.contains( "interval" ) )
-         {
-            cfg.interval = j[ "interval" ].get<std::chrono::milliseconds>();
-         }
-         // else: use default from struct definition (5000ms)
-      }
-   }
 
    /// @brief Template base class for typed sensors. Provides a default implementation of fetch_ that converts the typed data to string.
    /// @tparam T The type of the sensor data. The type must have a std::to_string overload.
-   /// @tparam TConfig The config type for this sensor. Must derive from BaseSensorConfig.
-   template <typename T, typename TConfig = config::BaseSensorConfig>
+   /// @tparam TConfig The config type for this sensor. Must derive from EntityConfig.
+   template <typename TState, typename TConfig = entities::config::EntityConfig>
    class BaseSensor : public entities::EntityInterface
    {
-         static_assert( std::is_base_of_v<config::BaseSensorConfig, TConfig>, "TConfig must derive from BaseSensorConfig" );
+         static_assert( std::is_base_of_v<entities::config::EntityConfig, TConfig>, "TConfig must derive from EntityConfig" );
 
       public:
 
@@ -85,7 +41,7 @@ namespace pace::sensors
          /// Binary sensor if T is bool; regular sensor otherwise
          entities::EntityType type() const override
          {
-            if constexpr( std::is_same_v<T, bool> )
+            if constexpr( std::is_same_v<TState, bool> )
             {
                return entities::EntityType::BinarySensor;
             }
@@ -95,16 +51,23 @@ namespace pace::sensors
             }
          }
 
-         util::Task<bool> fetchAndPublish()
+
+         /// @brief Fetch the sensor data. This is the main function that derived sensors
+         /// need to implement to provide their specific data fetching logic.
+         /// @return The fetched sensor data as the specific type TState.
+         virtual util::Task<TState> fetch() const = 0;
+
+         std::optional<std::chrono::milliseconds> pollingInterval() const override
          {
-            std::string data;
-            if constexpr( std::is_same_v<T, std::string> )
+            return config.interval;
+         }
+
+         util::Task<bool> poll() override
+         {
+            auto data = entities::stringifyResponse( co_await fetch() );
+            if( ! data )
             {
-               data = co_await fetch();
-            }
-            else if constexpr( std::is_arithmetic_v<T> )
-            {
-               data = std::to_string( co_await fetch() );
+               co_return false;
             }
 
             // Debounce data to avoid flooding mqtt with unchanged values
@@ -114,26 +77,11 @@ namespace pace::sensors
                ++debounce;
                co_return false;
             }
-            lastData = std::move( data );
+            lastData = data.value();
             debounce = 0;
 
             co_await mqtt.publish( stateTopic(), lastData );
             co_return true;
-         }
-
-         /// @brief Fetch the sensor data. This is the main function that derived sensors
-         /// need to implement to provide their specific data fetching logic.
-         /// @return The fetched sensor data as the specific type T.
-         virtual util::Task<T> fetch() const = 0;
-
-         std::optional<std::chrono::milliseconds> pollingInterval() const override
-         {
-            return config.interval;
-         }
-
-         util::Task<bool> poll() override
-         {
-            co_return co_await fetchAndPublish();
          }
 
 

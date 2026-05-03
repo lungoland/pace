@@ -17,13 +17,8 @@
 
 namespace pace::commands
 {
-   /// Sentinel type for commands that produce no response.
-   struct NoResponse
-   {};
-
-   /// Sentinel type for commands that take no input payload.
-   struct NoArgs
-   {};
+   using NoResponse = entities::NoResponse;
+   using NoArgs     = entities::NoArgs;
 
    template <typename TResponse = NoResponse, typename TRequest = NoArgs>
    class BaseCommand : public entities::EntityInterface
@@ -45,10 +40,10 @@ namespace pace::commands
          /// @return Task that completes when subscription is successful
          util::Task<bool> subscribe() override
          {
-            return mqtt.subscribe( fmt::format( "command/{}/set", name() ),
+            return mqtt.subscribe( commandTopic(),
                                    [ this ]( mqtt::const_message_ptr msg ) -> util::Task<bool>
                                    {
-                                      auto param    = parsePayload( msg->get_payload_str() );
+                                      auto param    = entities::parsePayload<TRequest>( msg->get_payload_str() );
                                       auto response = co_await execute( std::move( param ) );
 
                                       if( ! response )
@@ -57,7 +52,9 @@ namespace pace::commands
                                          co_return false;
                                       }
 
-                                      co_await mqtt.publish( fmt::format( "command/{}/status", name() ), stringifyResponse( *response ) );
+                                      /// TODO: Raw string topic
+                                      co_await mqtt.publish( fmt::format( "command/{}/status", name() ),
+                                                             entities::stringifyResponse( *response ) );
                                       co_return true;
                                    } );
          }
@@ -68,44 +65,5 @@ namespace pace::commands
          }
 
          virtual util::Task<ResponseType> execute( TRequest request ) const = 0;
-
-      private:
-
-         static TRequest parsePayload( const std::string& payload )
-         {
-            if constexpr( std::same_as<TRequest, NoArgs> )
-            {
-               return NoArgs{};
-            }
-            else if constexpr( std::same_as<TRequest, std::string> )
-            {
-               return payload;
-            }
-            else
-            {
-               auto json = nlohmann::json::parse( payload, nullptr, false );
-               if( json.is_discarded() )
-               {
-                  throw std::invalid_argument( "invalid JSON payload" );
-               }
-               return json.get<TRequest>();
-            }
-         }
-
-         static std::optional<std::string> stringifyResponse( const TResponse& response )
-         {
-            if constexpr( std::same_as<TResponse, NoResponse> )
-            {
-               return std::nullopt;
-            }
-            else if constexpr( std::same_as<TResponse, std::string> )
-            {
-               return std::optional<std::string>{ response };
-            }
-            else
-            {
-               return std::optional<std::string>{ nlohmann::json( response ).dump() };
-            }
-         }
    };
 } // namespace pace::commands

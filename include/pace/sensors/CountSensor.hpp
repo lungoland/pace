@@ -5,7 +5,7 @@
 namespace pace::sensors
 {
    /// @brief A sensor that returns a count value.
-   class CountSensor : public BaseSensor<int, config::BaseSensorConfig>
+   class CountSensor : public BaseSensor<int, entities::config::EntityConfig>
    {
       public:
 

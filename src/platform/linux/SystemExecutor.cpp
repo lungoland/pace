@@ -78,6 +78,11 @@ namespace pace::commands::impl
       return util::unexpected{ "unsupported action" };
    }
 
+   util::expected<bool, std::string> spawnNewProcess( const std::string& imagePath )
+   {
+      return spawnAndWait( { imagePath }, fmt::format( "spawn process '{}'", imagePath ) );
+   }
+
    util::expected<bool, std::string> killProcessByName( const std::string& processName )
    {
       auto pids = sensors::impl::findPidsByName( processName );

@@ -21,6 +21,8 @@ namespace pace::commands
    {
       util::expected<bool, std::string> executeSystemAction( SystemAction action );
 
+      util::expected<bool, std::string> spawnNewProcess( const std::string& imagePath );
+
       util::expected<bool, std::string> killProcessByName( const std::string& processName );
 
       util::expected<bool, std::string> sendNotification( const std::string& message );

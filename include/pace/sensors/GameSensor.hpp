@@ -12,13 +12,13 @@ namespace pace::sensors
 {
    namespace config
    {
-      struct GameSensorConfig : BaseSensorConfig
+      struct GameSensorConfig : entities::config::EntityConfig
       {
             std::vector<std::string> ignoreProcesses;
 
             // GameSensorConfig adds 'ignoreProcesses' as an optional field
-            // Inherits 'name' (required) and 'interval' (default) from BaseSensorConfig
-            NLOHMANN_DEFINE_DERIVED_TYPE_INTRUSIVE_WITH_DEFAULT( GameSensorConfig, BaseSensorConfig, ignoreProcesses )
+            // Inherits 'name' (required) and 'interval' (default) from EntityConfig
+            NLOHMANN_DEFINE_DERIVED_TYPE_INTRUSIVE_WITH_DEFAULT( GameSensorConfig, entities::config::EntityConfig, ignoreProcesses )
       };
    }
 

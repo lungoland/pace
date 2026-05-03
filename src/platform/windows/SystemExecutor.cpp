@@ -57,6 +57,25 @@ namespace pace::commands::impl
       return util::unexpected{ "unsupported action" };
    }
 
+
+   util::expected<bool, std::string> spawnNewProcess( const std::string& processName )
+   {
+      STARTUPINFOA        si{};
+      PROCESS_INFORMATION pi{};
+
+      si.cb = sizeof( si );
+      if( ! CreateProcessA( nullptr, processName.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi ) )
+      {
+         return windowsError( "CreateProcessA" );
+      }
+
+      WaitForSingleObject( pi.hProcess, INFINITE );
+      CloseHandle( pi.hProcess );
+      CloseHandle( pi.hThread );
+
+      return true;
+   }
+
    util::expected<bool, std::string> killProcessByName( const std::string& processName )
    {
       auto pids = sensors::impl::findPidsByName( processName );

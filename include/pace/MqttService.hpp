@@ -109,7 +109,7 @@ namespace pace
          /// @param payload Payload to publish
          /// @param retained Whether the message should be retained by the broker
          /// @return Awaitable task
-         util::Task<bool> publish( std::string topic, std::string payload, bool retained = false );
+         util::Task<bool> publish( const std::string& topic, std::string payload, bool retained = false );
 
          /// @brief Returns the fully qualified topic name
          /// @param topic Relative topic used internally

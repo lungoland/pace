@@ -2,7 +2,8 @@
 
 #include "util/Task.hpp"
 
-#include <nlohmann/json_fwd.hpp>
+// #include <nlohmann/json_fwd.hpp>
+#include <nlohmann/json.hpp>
 
 #include <chrono>
 #include <memory>
@@ -14,8 +15,119 @@ namespace pace
    class MqttService;
 }
 
+/// TODO: move into own class
+namespace nlohmann
+{
+   template <>
+   struct adl_serializer<std::chrono::milliseconds>
+   {
+         static void to_json( nlohmann::json& j, const std::chrono::milliseconds& ms )
+         {
+            j = ms.count();
+         }
+
+         static void from_json( const nlohmann::json& j, std::chrono::milliseconds& ms )
+         {
+            ms = std::chrono::milliseconds( j.get<long long>() );
+         }
+   };
+}
+
 namespace pace::entities
 {
+   namespace config
+   {
+      struct EntityConfig
+      {
+            std::string               name;
+            std::chrono::milliseconds interval = std::chrono::milliseconds{ 5000 };
+      };
+
+      // Custom serialization for EntityConfig: 'name' is required, 'interval' has a default
+      inline void to_json( nlohmann::json& j, const EntityConfig& cfg )
+      {
+         j[ "name" ]     = cfg.name;
+         j[ "interval" ] = cfg.interval;
+      }
+
+      inline void from_json( const nlohmann::json& j, EntityConfig& cfg )
+      {
+         cfg.name = j.at( "name" ).get<std::string>(); // required: throws if missing
+         if( j.contains( "interval" ) )
+         {
+            cfg.interval = j[ "interval" ].get<std::chrono::milliseconds>();
+         }
+         // else: use default from struct definition (5000ms)
+      }
+   }
+
+   /// Sentinel type for entities that produce no response.
+   struct NoResponse
+   {};
+
+   /// Sentinel type for entities that take no input payload.
+   struct NoArgs
+   {};
+
+   template <typename TRequest>
+   TRequest parsePayload( const std::string& payload )
+   {
+      if constexpr( std::same_as<TRequest, NoArgs> )
+      {
+         return NoArgs{};
+      }
+      else if constexpr( std::same_as<TRequest, std::string> )
+      {
+         return payload;
+      }
+      else if constexpr( std::same_as<TRequest, bool> )
+      {
+         if( payload == "on" || payload == "true" )
+         {
+            return true;
+         }
+         else if( payload == "off" || payload == "false" )
+         {
+            return false;
+         }
+         else
+         {
+            throw std::invalid_argument( "invalid boolean payload: expected 'on', 'off', 'true', or 'false'" );
+         }
+      }
+      else
+      {
+         auto json = nlohmann::json::parse( payload, nullptr, false );
+         if( json.is_discarded() )
+         {
+            throw std::invalid_argument( "invalid JSON payload" );
+         }
+         return json.get<TRequest>();
+      }
+   }
+
+   template <typename TResponse>
+   std::optional<std::string> stringifyResponse( const TResponse& response )
+   {
+      if constexpr( std::same_as<TResponse, NoResponse> )
+      {
+         return std::nullopt;
+      }
+      else if constexpr( std::same_as<TResponse, bool> )
+      {
+         return response ? "on" : "off";
+      }
+      else if constexpr( std::same_as<TResponse, std::string> )
+      {
+         return std::optional<std::string>{ response };
+      }
+      else
+      {
+         return std::optional<std::string>{ nlohmann::json( response ).dump() };
+      }
+   }
+
+
    /// @brief Enumeration of Home Assistant entity types
    enum class EntityType
    {

@@ -5,6 +5,7 @@
 #include "pace/MqttService.hpp"
 #include "pace/commands/NotifyCommand.hpp"
 #include "pace/sensors/BaseSensor.hpp"
+#include "pace/switches/ProcessSwitch.hpp"
 #include "util/AsyncTaskDispatcher.hpp"
 
 #include <memory>
@@ -130,9 +131,9 @@ TEST_CASE( "sensor templates map to expected entity types", "[entity][sensor]" )
    util::AsyncTaskDispatcher dispatcher;
    auto                      mqtt = makeOfflineMqtt( dispatcher );
 
-   pace::sensors::config::BaseSensorConfig boolCfg;
+   pace::entities::config::EntityConfig boolCfg;
    boolCfg.name = "bool_sensor";
-   pace::sensors::config::BaseSensorConfig intCfg;
+   pace::entities::config::EntityConfig intCfg;
    intCfg.name = "int_sensor";
 
    BoolSensor boolSensor{ mqtt, boolCfg };
@@ -140,6 +141,18 @@ TEST_CASE( "sensor templates map to expected entity types", "[entity][sensor]" )
 
    CHECK( boolSensor.type() == pace::entities::EntityType::BinarySensor );
    CHECK( intSensor.type() == pace::entities::EntityType::Sensor );
+}
+
+TEST_CASE( "process guard switch config parses from json", "[entity][switch]" )
+{
+   const nlohmann::json config{
+      { "name",      "process_guard_1" },
+      { "imagePath", "myapp"           },
+   };
+
+   const auto parsed = config.get<pace::switches::config::ProcessSwitchConfig>();
+   CHECK( parsed.name == "process_guard_1" );
+   CHECK( parsed.imagePath == "myapp" );
 }
 
 TEST_CASE( "notify command is classified as notify entity", "[entity][notify]" )

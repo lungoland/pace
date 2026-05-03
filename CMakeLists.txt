@@ -28,7 +28,6 @@ set(PACE_CORE_COMMON_SOURCES
     src/common/SystemExecutor.cpp
     src/common/EntityFactory.cpp
     src/common/EntityInterface.cpp
-    src/common/switches/ProcessGuardSwitch.cpp
 )
 
 if(WIN32)
