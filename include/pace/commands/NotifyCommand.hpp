@@ -12,6 +12,11 @@ namespace pace::commands
 
          using BaseCommand::BaseCommand;
 
+         entities::EntityType type() const override
+         {
+            return entities::EntityType::Notify;
+         }
+
          std::string name() const override
          {
             return "notify";

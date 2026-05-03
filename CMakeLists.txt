@@ -25,10 +25,10 @@ set(PACE_CORE_COMMON_SOURCES
     src/common/Pace.cpp
     src/common/Config.cpp
     src/common/MqttService.cpp
-    src/common/BaseCommand.cpp
-    src/common/BaseSensor.cpp
     src/common/SystemExecutor.cpp
-    src/common/SensorFactory.cpp
+    src/common/EntityFactory.cpp
+    src/common/EntityInterface.cpp
+    src/common/switches/ProcessGuardSwitch.cpp
 )
 
 if(WIN32)
@@ -135,6 +135,7 @@ if(PACE_BUILD_TESTS)
         find_package(Catch2 CONFIG REQUIRED)
         set(PACE_TEST_SOURCES
             tests/ConfigTests.cpp
+            tests/EntityModelTests.cpp
             tests/QueueAwaiterTests.cpp
             tests/TaskTests.cpp
             tests/TaskQueueTests.cpp

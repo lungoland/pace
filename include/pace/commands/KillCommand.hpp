@@ -6,6 +6,7 @@
 namespace pace::commands
 {
    /// @brief Kills a process by name.
+   /// TODO unfiy with proc sensor and move to switch
    class KillCommand : public BaseCommand<NoResponse, std::string>
    {
       public:

@@ -39,6 +39,13 @@ namespace pace
          /// @param dispatcher Dispatcher to use which should work message handlers.
          explicit MqttService( Config cfg, util::AsyncTaskDispatcher& dispatcher );
 
+         /// @brief Connects to the MQTT broker and subscribes to all topics in the topicHandlers map
+         /// @return Awaitable task that completes when the connection and subscriptions are established
+         util::Task<bool> connect();
+         /// @brief Disconnects from the MQTT broker
+         /// @return Awaitable task that completes when the disconnection is complete
+         util::Task<bool> disconnect();
+
          /// @brief Subscribes to a topic with a handler taking a deserialized payload
          /// @tparam Handler Function type of the handler, must be invocable with ( const std::string& topic, const Payload& payload )
          /// @param topic Topic to subscribe to
@@ -79,11 +86,11 @@ namespace pace
          /// @param topic Topic to subscribe to
          /// @param handler Handler to process the raw MQTT message
          /// @return
-         util::Task<bool> subscribe( const std::string& topic, MessageHandler handler );
+         util::Task<bool> subscribe( std::string topic, MessageHandler handler );
          /// @brief Unsubscribes from a topic
          /// @param topic Topic to unsubscribe from
          /// @return
-         util::Task<bool> unsubscribe( const std::string& topic );
+         util::Task<bool> unsubscribe( std::string topic );
 
          /// @brief Publishes a payload to a topic
          /// @tparam Payload Type of the payload to publish
@@ -102,11 +109,15 @@ namespace pace
          /// @param payload Payload to publish
          /// @param retained Whether the message should be retained by the broker
          /// @return Awaitable task
-         util::Task<bool> publish( const std::string& topic, std::string payload, bool retained = false );
+         util::Task<bool> publish( std::string topic, std::string payload, bool retained = false );
 
+         /// @brief Returns the fully qualified topic name
+         /// @param topic Relative topic used internally
+         /// @return Absolute topic used for MQTT operations
+         std::string qualifyTopic( const std::string& topic ) const;
 
-         util::Task<bool> connect();
-         util::Task<bool> disconnect();
+         /// @brief Returns the configured node ID
+         const std::string& nodeId() const;
 
       private:
 

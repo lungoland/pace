@@ -1,5 +1,8 @@
 #pragma once
 
+#include "pace/EntityInterface.hpp"
+#include "pace/MqttService.hpp"
+
 #include "util/Task.hpp"
 #include "util/expected.hpp"
 
@@ -12,114 +15,96 @@
 #include <string>
 #include <type_traits>
 
-namespace pace
-{
-   class MqttService;
-}
-
 namespace pace::commands
 {
-   /// @brief Base class for MQTT commands.
-   ///
-   /// CommandInterface handles MQTT subscription and response publishing.
-   /// Concrete commands derive from CommandInterface and implement name() and execute().
-   /// The command topic is "command/{name()}/set" and the response topic is "command/{name()}/status".
-   class CommandInterface
-   {
-      public:
-
-         using ResponseType = util::expected<std::optional<std::string>, std::string>;
-         using DataType     = std::optional<std::string>;
-
-         explicit CommandInterface( MqttService& mqttService );
-         virtual ~CommandInterface() = default;
-
-         util::Task<bool> subscribe() const;
-
-         virtual std::string              name() const                      = 0;
-         virtual util::Task<ResponseType> execute( DataType payload ) const = 0;
-
-      private:
-
-         util::Task<bool> handleResponse( ResponseType response ) const;
-
-         MqttService& mqtt;
-   };
-   using CommandPtr = std::unique_ptr<CommandInterface>;
-
    /// Sentinel type for commands that produce no response.
    struct NoResponse
    {};
-
-   /// @brief Typed middle layer between CommandInterface and concrete commands.
-   ///
-   /// Concrete commands derive from BaseCommand<TRequest, TResponse> and
-   /// implement only execute().  The subscribe/execute dispatch and
-   /// payload (de)serialization are handled here.
-   ///
-   /// TRequest: parsed input type, or NoArgs for commands with no payload.
-   /// TResponse: response type (std::string, nlohmann-serializable, or NoResponse).
 
    /// Sentinel type for commands that take no input payload.
    struct NoArgs
    {};
 
    template <typename TResponse = NoResponse, typename TRequest = NoArgs>
-   class BaseCommand : public CommandInterface
+   class BaseCommand : public entities::EntityInterface
    {
       public:
 
-         using CommandInterface::CommandInterface;
+         using EntityInterface::EntityInterface;
          using ResponseType = util::expected<TResponse, std::string>;
+         using DataType     = std::optional<std::string>;
 
-         util::Task<CommandInterface::ResponseType> execute( DataType payload ) const final
+         /// @brief Type of this entity.
+         /// @return EntityType indicating whether this is a button, sensor, switch, etc.
+         virtual entities::EntityType type() const
          {
-            if constexpr( std::same_as<TRequest, NoArgs> )
-            {
-               co_return toResponseType( co_await execute( NoArgs{} ) );
-            }
-            else if constexpr( std::same_as<TRequest, std::string> )
-            {
-               auto response = co_await execute( std::move( *payload ) );
-               co_return toResponseType( response );
-            }
-            else
-            {
-               /// TODO: with this here, I guess the specialized subscribe can be removed
-               auto json = nlohmann::json::parse( *payload, nullptr, false );
-               if( json.is_discarded() )
-               {
-                  /// TODO: Test null json
-                  co_return util::unexpected{ "invalid JSON payload" };
-               }
-               auto data     = json.get<TRequest>();
-               auto response = co_await execute( std::move( data ) );
-               co_return toResponseType( response );
-            }
+            return entities::EntityType::Button;
+         }
+
+         /// @brief Subscribe to MQTT topics and set up handlers for this entity
+         /// @return Task that completes when subscription is successful
+         util::Task<bool> subscribe() override
+         {
+            return mqtt.subscribe( fmt::format( "command/{}/set", name() ),
+                                   [ this ]( mqtt::const_message_ptr msg ) -> util::Task<bool>
+                                   {
+                                      auto param    = parsePayload( msg->get_payload_str() );
+                                      auto response = co_await execute( std::move( param ) );
+
+                                      if( ! response )
+                                      {
+                                         spdlog::error( "Command {} execution failed: {}", name(), response.error() );
+                                         co_return false;
+                                      }
+
+                                      co_await mqtt.publish( fmt::format( "command/{}/status", name() ), stringifyResponse( *response ) );
+                                      co_return true;
+                                   } );
+         }
+
+         util::Task<bool> unsubscribe() override
+         {
+            return mqtt.unsubscribe( commandTopic() );
          }
 
          virtual util::Task<ResponseType> execute( TRequest request ) const = 0;
 
       private:
 
-         static CommandInterface::ResponseType toResponseType( const ResponseType& response )
+         static TRequest parsePayload( const std::string& payload )
          {
-            if( ! response )
+            if constexpr( std::same_as<TRequest, NoArgs> )
             {
-               return util::unexpected{ response.error() };
+               return NoArgs{};
             }
+            else if constexpr( std::same_as<TRequest, std::string> )
+            {
+               return payload;
+            }
+            else
+            {
+               auto json = nlohmann::json::parse( payload, nullptr, false );
+               if( json.is_discarded() )
+               {
+                  throw std::invalid_argument( "invalid JSON payload" );
+               }
+               return json.get<TRequest>();
+            }
+         }
 
+         static std::optional<std::string> stringifyResponse( const TResponse& response )
+         {
             if constexpr( std::same_as<TResponse, NoResponse> )
             {
                return std::nullopt;
             }
             else if constexpr( std::same_as<TResponse, std::string> )
             {
-               return std::optional<std::string>{ response.value() };
+               return std::optional<std::string>{ response };
             }
             else
             {
-               return std::optional<std::string>{ nlohmann::json( response.value() ).dump() };
+               return std::optional<std::string>{ nlohmann::json( response ).dump() };
             }
          }
    };

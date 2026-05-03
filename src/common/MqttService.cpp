@@ -68,7 +68,7 @@ namespace pace
    }
 
 
-   util::Task<bool> MqttService::subscribe( const std::string& topic, MessageHandler handler )
+   util::Task<bool> MqttService::subscribe( std::string topic, MessageHandler handler )
    {
       auto fqTopic = fmt::format( "{}{}", baseTopic, topic );
       spdlog::debug( " @  {}", fqTopic );
@@ -82,7 +82,7 @@ namespace pace
       co_return true;
    }
 
-   util::Task<bool> MqttService::unsubscribe( const std::string& topic )
+   util::Task<bool> MqttService::unsubscribe( std::string topic )
    {
       auto fqTopic = fmt::format( "{}{}", baseTopic, topic );
       spdlog::debug( " @  {}", fqTopic );
@@ -93,12 +93,22 @@ namespace pace
    }
 
 
-   util::Task<bool> MqttService::publish( const std::string& topic, std::string payload, bool retained )
+   util::Task<bool> MqttService::publish( std::string topic, std::string payload, bool retained )
    {
-      auto fqTopic = topic.starts_with( '/' ) ? topic.substr( 1 ) : fmt::format( "{}{}", baseTopic, topic );
+      auto fqTopic = qualifyTopic( topic );
       spdlog::debug( "<-- {}: {}", fqTopic, payload );
       co_await client.publish( fqTopic, payload, config.qos, retained );
       co_return true;
+   }
+
+   std::string MqttService::qualifyTopic( const std::string& topic ) const
+   {
+      return topic.starts_with( '/' ) ? topic.substr( 1 ) : fmt::format( "{}{}", baseTopic, topic );
+   }
+
+   const std::string& MqttService::nodeId() const
+   {
+      return config.nodeId;
    }
 
 

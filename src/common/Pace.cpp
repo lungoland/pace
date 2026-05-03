@@ -3,7 +3,6 @@
 #include "pace/commands/BaseCommand.hpp"
 #include "pace/commands/ExecCommand.hpp"
 #include "pace/commands/KillCommand.hpp"
-#include "pace/commands/NotifyCommand.hpp"
 #include "pace/commands/NullCommand.hpp"
 #include "pace/commands/PingCommand.hpp"
 #include "pace/commands/StopCommand.hpp"
@@ -14,17 +13,31 @@
 #include "pace/sensors/GameSensor.hpp"
 #include "pace/sensors/ProcSensor.hpp"
 
+#include <fmt/format.h>
+
 namespace pace
 {
    namespace
    {
-      void scheduleJob( util::PeriodicScheduler& scheduler, std::shared_ptr<sensors::SensorInterface> sensor )
+      std::string entityTypeToDiscoveryName( entities::EntityType type )
       {
-         scheduler.addJob( util::PeriodicScheduler::Job{
-            .name     = sensor->name(),
-            .interval = sensor->interval(),
-            .execute  = [ sensor ]() -> util::Task<bool> { return sensor->fetchAndPublish(); },
-         } );
+         switch( type )
+         {
+            case entities::EntityType::Button : return "button";
+            case entities::EntityType::Sensor : return "sensor";
+            case entities::EntityType::BinarySensor : return "binary_sensor";
+            case entities::EntityType::Notify : return "notify";
+            case entities::EntityType::Switch : return "switch";
+         }
+         return "sensor";
+      }
+
+      util::Task<bool> publishDiscovery( MqttService& mqtt, const entities::EntityInterface& entity )
+      {
+         auto payload = entity.getDiscoveryPayload();
+         auto topic   = fmt::format( "/homeassistant/{}/{}/config", entityTypeToDiscoveryName( entity.type() ),
+                                     payload.at( "unique_id" ).get<std::string>() );
+         co_return co_await mqtt.publish( topic, payload, true );
       }
    }
 
@@ -32,28 +45,13 @@ namespace pace
       : config( cfg )
       , mqtt( config, disp )
       , dispatcher( disp )
-      , sensorFactory( *this, mqtt )
-   {
-      /// TODO: Move to CommandFactory and make configurable via mqtt config topic
-      /// which config?!
-      commands.emplace_back( std::make_unique<pace::commands::NullCommand>( mqtt ) );
-      commands.emplace_back( std::make_unique<pace::commands::PingCommand>( mqtt ) );
-      commands.emplace_back( std::make_unique<pace::commands::ExecCommand>( mqtt ) );
-      commands.emplace_back( std::make_unique<pace::commands::KillCommand>( mqtt ) );
-      commands.emplace_back( std::make_unique<pace::commands::NotifyCommand>( mqtt ) );
-      commands.emplace_back( std::make_unique<pace::commands::StopCommand>( mqtt, *this ) );
-      commands.emplace_back( std::make_unique<pace::commands::LockCommand>( mqtt ) );
-      commands.emplace_back( std::make_unique<pace::commands::SleepCommand>( mqtt ) );
-      commands.emplace_back( std::make_unique<pace::commands::RebootCommand>( mqtt ) );
-      commands.emplace_back( std::make_unique<pace::commands::ShutdownCommand>( mqtt ) );
-   }
+      , entityFactory( *this, mqtt )
+   {}
 
    util::Task<bool> Pace::start()
    {
       bool ret = co_await mqtt.connect();
-
-      ret &= co_await util::all( commands | std::views::transform( []( const auto& command ) { return command->subscribe(); } ) );
-      ret &= co_await sensorFactory.subscribe();
+      ret &= co_await entityFactory.subscribe();
       co_return ret;
    }
 
@@ -67,25 +65,70 @@ namespace pace
       co_return true;
    }
 
-   void Pace::addSensor( sensors::SensorPtr sensor )
+   util::Task<bool> Pace::addEntity( entities::EntityPtr entity )
    {
-      /// use fmt::format .. but that requires constexpr for strings ...
-      spdlog::info( "Adding \033[3m{}\033[0m sensor name {}", sensor->name(), sensor->name() );
-      auto sharedSensor = std::shared_ptr<sensors::SensorInterface>( std::move( sensor ) );
-      scheduleJob( scheduler, sharedSensor );
-      sensors.emplace_back( std::move( sharedSensor ) );
-   }
-
-   void Pace::removeSensor( const std::string& sensorName )
-   {
-      auto it = std::ranges::find_if( sensors, [ & ]( const auto& s ) { return s->name() == sensorName; } );
-      if( it == std::end( sensors ) )
+      if( ! entity )
       {
-         return;
+         co_return false;
       }
 
-      spdlog::info( "Removing \033[3m{}\033[0m sensor name {}", ( *it )->name(), sensorName );
-      scheduler.removeJob( sensorName );
-      sensors.erase( it );
+      std::shared_ptr<entities::EntityInterface> sharedEntity = std::move( entity );
+
+      std::string entityName = sharedEntity->name();
+      auto        type       = sharedEntity->type();
+      spdlog::info( "Adding entity '{}' of type {}", entityName, static_cast<int>( type ) );
+
+
+      if( ! co_await sharedEntity->subscribe() )
+      {
+         spdlog::warn( "Failed to subscribe entity '{}'", entityName );
+         co_return false;
+      }
+
+      if( ! co_await publishDiscovery( mqtt, *sharedEntity ) )
+      {
+         spdlog::warn( "Failed to publish discovery for entity '{}'", entityName );
+         co_return false;
+      }
+
+      if( auto interval = sharedEntity->pollingInterval(); interval.has_value() )
+      {
+         scheduler.addJob( util::PeriodicScheduler::Job{
+            .name     = entityName,
+            .interval = *interval,
+            .execute  = [ sharedEntity ]() -> util::Task<bool> { return sharedEntity->poll(); },
+         } );
+      }
+
+      this->entities.push_back( std::move( sharedEntity ) );
+      co_return true;
    }
+
+   util::Task<bool> Pace::removeEntity( const std::string& entityName )
+   {
+      auto it = std::ranges::find_if( this->entities, [ & ]( const auto& e ) { return e->name() == entityName; } );
+      if( it == std::end( this->entities ) )
+      {
+         co_return true;
+      }
+
+      auto entity = *it;
+      auto type   = entity->type();
+      spdlog::info( "Removing entity '{}' of type {}", entityName, static_cast<int>( type ) );
+
+      if( auto interval = entity->pollingInterval(); interval.has_value() )
+      {
+         scheduler.removeJob( entityName );
+      }
+
+      if( ! co_await entity->unsubscribe() )
+      {
+         spdlog::warn( "Failed to unsubscribe entity '{}'", entityName );
+         co_return false;
+      }
+
+      this->entities.erase( it );
+      co_return true;
+   }
+
 } // namespace pace

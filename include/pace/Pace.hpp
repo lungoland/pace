@@ -1,8 +1,9 @@
 #pragma once
 
 #include "pace/Config.hpp"
+#include "pace/EntityFactory.hpp"
+#include "pace/EntityInterface.hpp"
 #include "pace/MqttService.hpp"
-#include "pace/SensorFactory.hpp"
 
 #include "pace/commands/BaseCommand.hpp"
 #include "pace/sensors/BaseSensor.hpp"
@@ -28,12 +29,13 @@ namespace pace
          /// @return true once stopped successfully; false otherwise.
          util::Task<bool> stop();
 
-         /// @brief Adds a sensor to the scheduler for periodic execution.
-         /// @param sensor The sensor to take ownership of and schedule.
-         void addSensor( sensors::SensorPtr sensor );
-         /// @brief Removes a sensor from the scheduler.
-         /// @param sensorName The name of the sensor to remove.
-         void removeSensor( const std::string& sensorName );
+         /// @brief Adds a generic entity to the registry and scheduler if applicable.
+         /// @param entity The entity to take ownership of and register.
+         util::Task<bool> addEntity( entities::EntityPtr entity );
+
+         /// @brief Removes an entity from the registry and scheduler if applicable.
+         /// @param entityName The name of the entity to remove.
+         util::Task<bool> removeEntity( const std::string& entityName );
 
       private:
 
@@ -47,22 +49,10 @@ namespace pace
          /// @brief  Scheduler for managing periodic execution of sensor data fetching.
          util::PeriodicScheduler scheduler;
 
-         /// @brief Factory for creating sensors based on MQTT configuration topics.
-         pace::SensorFactory sensorFactory;
+         /// @brief Factory for creating entities based on MQTT configuration topics.
+         pace::EntityFactory entityFactory;
 
-         /// TODO: HA MQTT Type specifics?
-         ///       button, binary_sensor, sensor, switch, notify
-         ///       "switch" would be sensor + command combined
-         ///
-         ///   switch, sensor, binary_sensor: "SensorInterface"
-         ///   switch, button, notify: "CommandInterface"
-
-         /// @brief List of available commands that the service can execute based on MQTT messages.
-         std::vector<pace::commands::CommandPtr> commands;
-         /// @brief List of active sensors which are scheduled periodically.
-         /// TODO: crashes when removing sensors ... shared_ptr could be a fix but
-         ///       causes sensors to stay alive ... for some reasons
-         ///  ...  basically a issue when removed when currently executing ...
-         std::vector<std::shared_ptr<sensors::SensorInterface>> sensors;
+         /// @brief Unified registry of all entities (commands, sensors, switches, notify, etc.)
+         std::vector<std::shared_ptr<entities::EntityInterface>> entities;
    };
 } // namespace pace

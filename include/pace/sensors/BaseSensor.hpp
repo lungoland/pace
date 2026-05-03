@@ -1,5 +1,8 @@
 #pragma once
 
+#include "pace/EntityInterface.hpp"
+#include "pace/MqttService.hpp"
+
 #include "util/Task.hpp"
 
 #include <nlohmann/json.hpp>
@@ -26,11 +29,6 @@ namespace nlohmann
             ms = std::chrono::milliseconds( j.get<long long>() );
          }
    };
-}
-
-namespace pace
-{
-   class MqttService;
 }
 
 namespace pace::sensors
@@ -61,67 +59,66 @@ namespace pace::sensors
       }
    }
 
-   /// @brief Base class for all sensors. Defines the interface and common logic for publishing sensor data to MQTT.
-   class SensorInterface
-   {
-      public:
-
-         static constexpr int32_t MAX_DEBOUNCE = 5;
-
-         explicit SensorInterface( MqttService& mqttService, std::unique_ptr<config::BaseSensorConfig> config );
-         virtual ~SensorInterface() = default;
-
-         /// @brief Main interface for calling code to fetch sensor data and publish to MQTT.
-         /// @return  true if new data was published, false if no data could be published (also including debounce)
-         util::Task<bool> fetchAndPublish();
-
-         /// @brief Fetch the sensor data. This is the main function that derived sensors need to implement to
-         /// provide their specific data fetching logic.
-         /// @return  The fetched sensor data as a string.
-         /// TODO: Find a way to remove the "_" while working with BaseSensor
-         virtual util::Task<std::string> fetch_() const = 0;
-
-         /// @brief Name of the sensor and subsequent the MQTT topic:
-         ///        pace/{node}/sensor/{name}/state
-         std::string               name() const;
-         std::chrono::milliseconds interval() const;
-
-      private:
-
-         MqttService&                              mqtt;
-         std::unique_ptr<config::BaseSensorConfig> config;
-
-         /// @brief Cache the last published data to implement debounce logic
-         std::string lastData;
-         /// @brief Counter to track how many times the same data has been returned by fetch_ to implement debounce logic
-         /// TODO: Add Reset Command to reset debounce?
-         int32_t debounce = 0;
-   };
-   using SensorPtr = std::unique_ptr<SensorInterface>;
-
    /// @brief Template base class for typed sensors. Provides a default implementation of fetch_ that converts the typed data to string.
    /// @tparam T The type of the sensor data. The type must have a std::to_string overload.
    /// @tparam TConfig The config type for this sensor. Must derive from BaseSensorConfig.
    template <typename T, typename TConfig = config::BaseSensorConfig>
-   class BaseSensor : public SensorInterface
+   class BaseSensor : public entities::EntityInterface
    {
          static_assert( std::is_base_of_v<config::BaseSensorConfig, TConfig>, "TConfig must derive from BaseSensorConfig" );
 
       public:
 
-         BaseSensor( MqttService& mqttService, std::unique_ptr<TConfig> cfg = std::make_unique<TConfig>() )
-            : BaseSensor( mqttService, std::move( cfg ), cfg.get() )
+         explicit BaseSensor( MqttService& mqttService, const TConfig& cfg )
+            : entities::EntityInterface( mqttService )
+            , config( cfg )
          {}
 
-         /// @brief Fetch the sensor data and convert it to a string.
-         /// @return The fetched sensor data as a string.
-         util::Task<std::string> fetch_() const override
+         /// @brief Name of the entity. Used to construct MQTT topics.
+         /// @return Entity name (e.g., "lock", "count", "ping_status")
+         std::string name() const override
          {
+            return config.name;
+         }
+
+         /// @brief Get entity type based on data type T
+         /// Binary sensor if T is bool; regular sensor otherwise
+         entities::EntityType type() const override
+         {
+            if constexpr( std::is_same_v<T, bool> )
+            {
+               return entities::EntityType::BinarySensor;
+            }
+            else
+            {
+               return entities::EntityType::Sensor;
+            }
+         }
+
+         util::Task<bool> fetchAndPublish()
+         {
+            std::string data;
             if constexpr( std::is_same_v<T, std::string> )
             {
-               return fetch();
+               data = co_await fetch();
             }
-            co_return std::to_string( co_await fetch() );
+            else if constexpr( std::is_arithmetic_v<T> )
+            {
+               data = std::to_string( co_await fetch() );
+            }
+
+            // Debounce data to avoid flooding mqtt with unchanged values
+            // But publish once in a while for newly connected clients.
+            if( debounce < MAX_DEBOUNCE && data == lastData )
+            {
+               ++debounce;
+               co_return false;
+            }
+            lastData = std::move( data );
+            debounce = 0;
+
+            co_await mqtt.publish( stateTopic(), lastData );
+            co_return true;
          }
 
          /// @brief Fetch the sensor data. This is the main function that derived sensors
@@ -129,24 +126,29 @@ namespace pace::sensors
          /// @return The fetched sensor data as the specific type T.
          virtual util::Task<T> fetch() const = 0;
 
-         /// @brief Get the MQTT discovery type for this sensor based on the data type T.
-         /// @return The MQTT discovery type as a string; only supported values are "binary_sensor" for bool and "sensor" for all other types.
-         constexpr const char* sensorType() const
+         std::optional<std::chrono::milliseconds> pollingInterval() const override
          {
-            return std::same_as<T, bool> ? "binary_sensor" : "sensor";
+            return config.interval;
          }
+
+         util::Task<bool> poll() override
+         {
+            co_return co_await fetchAndPublish();
+         }
+
 
       protected:
 
-         const TConfig& config;
+         TConfig config;
 
       private:
 
-         /// Delegating constructor: captures raw pointer before unique_ptr ownership transfer,
-         /// avoiding the UB of dereferencing cfg after std::move(cfg) in the MIL.
-         BaseSensor( MqttService& mqttService, std::unique_ptr<TConfig> cfg, TConfig* raw )
-            : SensorInterface( mqttService, std::move( cfg ) )
-            , config( *raw )
-         {}
+         static constexpr int32_t MAX_DEBOUNCE = 5;
+
+         /// @brief Cache the last published data to implement debounce logic
+         std::string lastData;
+         /// @brief Counter to track how many times the same data has been returned by fetch_ to implement debounce logic
+         /// TODO: Add Reset Command to reset debounce?
+         int32_t debounce = 0;
    };
 } // namespace pace::sensors

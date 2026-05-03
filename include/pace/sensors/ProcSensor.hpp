@@ -20,6 +20,7 @@ namespace pace::sensors
    }
 
    /// @brief A sensor that returns true if a process is running.
+   /// TODO Move to switch
    class ProcSensor : public BaseSensor<bool, config::ProcSensorConfig>
    {
       public:
