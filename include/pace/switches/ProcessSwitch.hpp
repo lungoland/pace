@@ -5,6 +5,7 @@
 
 #include "pace/switches/BaseSwitch.hpp"
 
+#include <fmt/ranges.h>
 #include <nlohmann/json.hpp>
 
 #include <string>
@@ -59,19 +60,22 @@ namespace pace::switches
                // Maybe systemd has some wraper?
                // TODO: Also it seems that we cannot SIGTERM the child??
                // TODO: Maybe firefox is just special as it surrived termination of pace
-               spdlog::info( "Starting process '{}' with image path '{}'", processName, config.imagePath );
-               co_return commands::impl::spawnNewProcess( config.imagePath );
+               spdlog::debug( "Starting process '{}' with image path '{}'", processName, config.imagePath );
+               commands::impl::spawnNewProcess( config.imagePath );
+               co_return true;
             }
             else
             {
-               spdlog::info( "Killing process '{}' by name", processName );
-               co_return commands::impl::killProcessByName( processName );
+               spdlog::debug( "Killing process '{}' by name", processName );
+               co_await commands::impl::killProcessByName( processName );
+               co_return false;
             }
          }
 
          util::Task<bool> fetch() const override
          {
             auto pids = sensors::impl::findPidsByName( processName );
+            spdlog::trace( "Relevant PIDs for process '{}': [{}]", processName, fmt::join( pids, ", " ) );
             co_return pids.size() > 0;
          }
 

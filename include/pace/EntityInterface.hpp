@@ -107,11 +107,11 @@ namespace pace::entities
    }
 
    template <typename TResponse>
-   std::optional<std::string> stringifyResponse( const TResponse& response )
+   std::string stringifyResponse( const TResponse& response )
    {
       if constexpr( std::same_as<TResponse, NoResponse> )
       {
-         return std::nullopt;
+         return "";
       }
       else if constexpr( std::same_as<TResponse, bool> )
       {
@@ -119,11 +119,11 @@ namespace pace::entities
       }
       else if constexpr( std::same_as<TResponse, std::string> )
       {
-         return std::optional<std::string>{ response };
+         return response;
       }
       else
       {
-         return std::optional<std::string>{ nlohmann::json( response ).dump() };
+         return nlohmann::json( response ).dump();
       }
    }
 

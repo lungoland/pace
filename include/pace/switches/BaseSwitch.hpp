@@ -73,9 +73,7 @@ namespace pace::switches
                                          co_return false;
                                       }
 
-                                      /// TODO: Raw string topic
-                                      co_await mqtt.publish( fmt::format( "switch/{}/status", name() ),
-                                                             entities::stringifyResponse( *response ) );
+                                      co_await mqtt.publish( stateTopic(), entities::stringifyResponse( *response ) );
                                       co_return true;
                                    } );
          }
@@ -92,11 +90,7 @@ namespace pace::switches
 
          util::Task<bool> poll() override
          {
-            auto data = entities::stringifyResponse( co_await fetch() );
-            if( ! data )
-            {
-               co_return false;
-            }
+            auto data = co_await fetch();
 
             // Debounce data to avoid flooding mqtt with unchanged values
             // But publish once in a while for newly connected clients.
@@ -105,10 +99,8 @@ namespace pace::switches
                ++debounce;
                co_return false;
             }
-            lastData = data.value();
             debounce = 0;
-
-            co_await mqtt.publish( stateTopic(), lastData );
+            co_await mqtt.publish( stateTopic(), entities::stringifyResponse( data ) );
             co_return true;
          }
 
@@ -138,7 +130,7 @@ namespace pace::switches
          static constexpr int32_t MAX_DEBOUNCE = 5;
 
          /// @brief Cache the last published data to implement debounce logic
-         std::string lastData;
+         bool lastData;
          /// @brief Counter to track how many times the same data has been returned by fetch_ to implement debounce logic
          /// TODO: Add Reset Command to reset debounce?
          int32_t debounce = 0;

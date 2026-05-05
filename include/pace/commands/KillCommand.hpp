@@ -20,7 +20,11 @@ namespace pace::commands
 
          util::Task<ResponseType> execute( std::string proc ) const override
          {
-            impl::killProcessByName( proc );
+            auto result = co_await impl::killProcessByName( proc );
+            if( ! result )
+            {
+               co_return util::unexpected{ result.error() };
+            }
             co_return {};
          }
    };

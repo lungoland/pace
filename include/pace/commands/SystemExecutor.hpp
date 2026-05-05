@@ -1,5 +1,6 @@
 #pragma once
 
+#include "util/Task.hpp"
 #include "util/expected.hpp"
 
 #include <string>
@@ -23,7 +24,7 @@ namespace pace::commands
 
       util::expected<bool, std::string> spawnNewProcess( const std::string& imagePath );
 
-      util::expected<bool, std::string> killProcessByName( const std::string& processName );
+      util::Task<util::expected<bool, std::string>> killProcessByName( const std::string& processName );
 
       util::expected<bool, std::string> sendNotification( const std::string& message );
 

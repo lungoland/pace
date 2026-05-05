@@ -40,7 +40,7 @@ namespace pace::sensors
             }
 
             // Given the list of candidate processes .. this apraoch is not scaleable ...
-            spdlog::debug( "GameSensor found candidate processes: {}", fmt::join( candidates, ", " ) );
+            spdlog::trace( "GameSensor found candidate processes: [{}]", fmt::join( candidates, ", " ) );
             co_return ! candidates.empty();
          }
    };

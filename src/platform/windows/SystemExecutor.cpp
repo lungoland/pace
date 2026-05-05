@@ -76,7 +76,7 @@ namespace pace::commands::impl
       return true;
    }
 
-   util::expected<bool, std::string> killProcessByName( const std::string& processName )
+   util::Task<util::expected<bool, std::string>> killProcessByName( const std::string& processName )
    {
       auto pids = sensors::impl::findPidsByName( processName );
       for( auto pid : pids )
@@ -85,10 +85,10 @@ namespace pace::commands::impl
          if( processHandle )
          {
             TerminateProcess( processHandle.get(), 1 );
-            return true;
+            co_return true;
          }
       }
-      return util::unexpected{ fmt::format( "No process found with name {}", processName ) };
+      co_return util::unexpected{ fmt::format( "No process found with name {}", processName ) };
    }
 
    util::expected<bool, std::string> sendNotification( const std::string& message )

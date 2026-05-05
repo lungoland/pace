@@ -65,10 +65,6 @@ namespace pace::sensors
          util::Task<bool> poll() override
          {
             auto data = entities::stringifyResponse( co_await fetch() );
-            if( ! data )
-            {
-               co_return false;
-            }
 
             // Debounce data to avoid flooding mqtt with unchanged values
             // But publish once in a while for newly connected clients.
@@ -77,7 +73,7 @@ namespace pace::sensors
                ++debounce;
                co_return false;
             }
-            lastData = data.value();
+            lastData = data;
             debounce = 0;
 
             co_await mqtt.publish( stateTopic(), lastData );
