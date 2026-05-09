@@ -29,6 +29,9 @@ namespace pace::switches
    {
       public:
 
+         static constexpr std::string_view kType = "proc";
+         using Config                            = config::ProcessSwitchConfig;
+
          explicit ProcessSwitch( MqttService& mqttService, const config::ProcessSwitchConfig& cfg )
             : BaseSwitch( mqttService, cfg )
          {

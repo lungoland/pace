@@ -51,12 +51,6 @@ namespace pace::sensors
             }
          }
 
-
-         /// @brief Fetch the sensor data. This is the main function that derived sensors
-         /// need to implement to provide their specific data fetching logic.
-         /// @return The fetched sensor data as the specific type TState.
-         virtual util::Task<TState> fetch() const = 0;
-
          std::optional<std::chrono::milliseconds> pollingInterval() const override
          {
             return config.interval;
@@ -66,20 +60,42 @@ namespace pace::sensors
          {
             auto data = entities::stringifyResponse( co_await fetch() );
 
-            // Debounce data to avoid flooding mqtt with unchanged values
+            // Debounce state to avoid flooding mqtt with unchanged values
             // But publish once in a while for newly connected clients.
             if( debounce < MAX_DEBOUNCE && data == lastData )
             {
                ++debounce;
-               co_return false;
             }
-            lastData = data;
-            debounce = 0;
+            else
+            {
+               lastData = data;
+               debounce = 0;
+               co_await mqtt.publish( stateTopic(), lastData );
+            }
 
-            co_await mqtt.publish( stateTopic(), lastData );
+            // Independently debounce and publish attributes (e.g. process lists).
+            if( auto attrs = getAttributes(); attrs.has_value() )
+            {
+               auto attrsStr = attrs->dump();
+               if( attrsDebounce < MAX_DEBOUNCE && attrsStr == lastAttrs )
+               {
+                  ++attrsDebounce;
+               }
+               else
+               {
+                  lastAttrs     = attrsStr;
+                  attrsDebounce = 0;
+                  co_await mqtt.publish( attributesTopic(), lastAttrs );
+               }
+            }
+
             co_return true;
          }
 
+         /// @brief Fetch the sensor data. This is the main function that derived sensors
+         /// need to implement to provide their specific data fetching logic.
+         /// @return The fetched sensor data as the specific type TState.
+         virtual util::Task<TState> fetch() const = 0;
 
       protected:
 
@@ -89,10 +105,14 @@ namespace pace::sensors
 
          static constexpr int32_t MAX_DEBOUNCE = 5;
 
-         /// @brief Cache the last published data to implement debounce logic
+         /// @brief Cache the last published state to implement debounce logic
          std::string lastData;
-         /// @brief Counter to track how many times the same data has been returned by fetch_ to implement debounce logic
-         /// TODO: Add Reset Command to reset debounce?
+         /// @brief Counter to track same-state repeats for state debounce
          int32_t debounce = 0;
+
+         /// @brief Cache the last published attributes to implement attribute debounce
+         std::string lastAttrs;
+         /// @brief Counter to track same-attribute repeats for attribute debounce
+         int32_t attrsDebounce = 0;
    };
 } // namespace pace::sensors

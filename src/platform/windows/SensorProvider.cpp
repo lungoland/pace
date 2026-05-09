@@ -11,8 +11,6 @@
 #include <tlhelp32.h>
 // clang-format on
 
-#include <spdlog/spdlog.h>
-
 namespace pace::sensors::impl
 {
    using pace::win::UniqueHandle;
@@ -94,7 +92,6 @@ namespace pace::sensors::impl
                      {
                         if( _stricmp( modName, dll ) == 0 )
                         {
-                           // spdlog::debug( "Found game process: {} (PID {}) with GPU module {}", entry.szExeFile, entry.th32ProcessID, dll );
                            foundProcs.insert( entry.szExeFile );
                            break;
                         }

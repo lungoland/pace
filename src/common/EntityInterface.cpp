@@ -50,19 +50,28 @@ namespace pace::entities
       switch( type() )
       {
          case EntityType::Button : payload[ "command_topic" ] = mqtt.qualifyTopic( commandTopic() ); break;
+         case EntityType::Text : payload[ "command_topic" ] = mqtt.qualifyTopic( commandTopic() ); break;
+
          case EntityType::Sensor : payload[ "state_topic" ] = mqtt.qualifyTopic( stateTopic() ); break;
          case EntityType::BinarySensor :
             payload[ "state_topic" ] = mqtt.qualifyTopic( stateTopic() );
             payload[ "payload_on" ]  = "on";
             payload[ "payload_off" ] = "off";
             break;
+
          case EntityType::Notify : payload[ "command_topic" ] = mqtt.qualifyTopic( commandTopic() ); break;
+
          case EntityType::Switch :
             payload[ "state_topic" ]   = mqtt.qualifyTopic( stateTopic() );
             payload[ "command_topic" ] = mqtt.qualifyTopic( commandTopic() );
             payload[ "payload_on" ]    = "on";
             payload[ "payload_off" ]   = "off";
             break;
+      }
+
+      if( getAttributes().has_value() )
+      {
+         payload[ "json_attributes_topic" ] = mqtt.qualifyTopic( attributesTopic() );
       }
 
       return payload;
@@ -73,9 +82,14 @@ namespace pace::entities
       return "command/" + name() + "/set";
    }
 
-   std::string EntityInterface::statusTopic() const
+   std::optional<nlohmann::json> EntityInterface::getAttributes() const
    {
-      return "command/" + name() + "/status";
+      return std::nullopt;
+   }
+
+   std::string EntityInterface::attributesTopic() const
+   {
+      return "sensor/" + name() + "/attributes";
    }
 
    std::string EntityInterface::stateTopic() const

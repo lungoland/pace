@@ -9,6 +9,8 @@ namespace pace::commands
    {
       public:
 
+         static constexpr std::string_view kType = "ping";
+
          using BaseCommand::BaseCommand;
 
          std::string name() const override

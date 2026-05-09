@@ -62,9 +62,10 @@ namespace pace::commands::impl
    {
       STARTUPINFOA        si{};
       PROCESS_INFORMATION pi{};
+      std::string         commandLine = processName;
 
       si.cb = sizeof( si );
-      if( ! CreateProcessA( nullptr, processName.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi ) )
+      if( ! CreateProcessA( nullptr, commandLine.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi ) )
       {
          return windowsError( "CreateProcessA" );
       }

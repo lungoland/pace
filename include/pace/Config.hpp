@@ -13,7 +13,6 @@ namespace pace
          std::string username{ "" };
          std::string password{ "" };
          int         qos{ 1 };
-         bool        dryRun{ true };
 
          static Config fromEnvironment();
    };

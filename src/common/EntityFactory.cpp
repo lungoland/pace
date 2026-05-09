@@ -6,12 +6,10 @@
 #include "pace/commands/ExecCommand.hpp"
 #include "pace/commands/KillCommand.hpp"
 #include "pace/commands/NotifyCommand.hpp"
-#include "pace/commands/NullCommand.hpp"
 #include "pace/commands/PingCommand.hpp"
 #include "pace/commands/StopCommand.hpp"
 #include "pace/commands/SystemActionCommand.hpp"
 
-#include "pace/sensors/CountSensor.hpp"
 #include "pace/sensors/GameSensor.hpp"
 #include "pace/sensors/ProcSensor.hpp"
 
@@ -64,23 +62,41 @@ namespace
       }
    }
 
-   /// Registry keyed by subtype.
    using EntityCreator = std::function<pace::entities::EntityPtr( pace::Pace&, pace::MqttService&, const nlohmann::json& )>;
-   const std::map<std::string, EntityCreator> entityCreators{
-      { "count", tryBuildEntity<pace::sensors::CountSensor, pace::entities::config::EntityConfig> },
-      { "game", tryBuildEntity<pace::sensors::GameSensor, pace::sensors::config::GameSensorConfig> },
 
-      { "proc", tryBuildEntity<pace::switches::ProcessSwitch, pace::switches::config::ProcessSwitchConfig> },
+   template <typename T>
+   concept HasConfig = requires { typename T::Config; };
 
-      { "null", tryBuildEntity<pace::commands::NullCommand> },
-      { "ping", tryBuildEntity<pace::commands::PingCommand> },
-      { "notify", tryBuildEntity<pace::commands::NotifyCommand> },
-      { "stop", tryBuildEntity<pace::commands::StopCommand> },
-      { "lock", tryBuildEntity<pace::commands::LockCommand> },
-      { "sleep", tryBuildEntity<pace::commands::SleepCommand> },
-      { "reboot", tryBuildEntity<pace::commands::RebootCommand> },
-      { "shutdown", tryBuildEntity<pace::commands::ShutdownCommand> },
-   };
+   /// Returns the correct tryBuildEntity instantiation for T,
+   /// dispatching on whether T exposes a Config type alias.
+   template <typename T>
+   EntityCreator makeCreator()
+   {
+      if constexpr( HasConfig<T> )
+      {
+         return tryBuildEntity<T, typename T::Config>;
+      }
+      else
+      {
+         return tryBuildEntity<T>;
+      }
+   }
+
+   /// Builds the registry from a parameter pack of entity types.
+   /// Each type must expose a static constexpr std::string_view kType.
+   template <typename... Ts>
+   std::map<std::string, EntityCreator> makeCreatorMap()
+   {
+      std::map<std::string, EntityCreator> m;
+      ( m.emplace( std::string{ Ts::kType }, makeCreator<Ts>() ), ... );
+      return m;
+   }
+
+   /// Registry keyed by subtype.
+   const std::map<std::string, EntityCreator> entityCreators =
+      makeCreatorMap<pace::sensors::GameSensor, pace::switches::ProcessSwitch, pace::commands::PingCommand, pace::commands::NotifyCommand,
+                     pace::commands::StopCommand, pace::commands::LockCommand, pace::commands::SleepCommand, pace::commands::RebootCommand,
+                     pace::commands::ShutdownCommand>();
 }
 
 namespace pace

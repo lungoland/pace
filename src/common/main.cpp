@@ -7,17 +7,18 @@
 #include <exception>
 #include <fmt/base.h>
 #include <functional>
+#include <string>
+
+#include <spdlog/cfg/env.h>
 #include <spdlog/common.h>
 #include <spdlog/spdlog.h>
-#include <string>
 
 int main()
 {
    try
    {
       const auto cfg = pace::Config::fromEnvironment();
-      spdlog::set_level( cfg.dryRun ? spdlog::level::debug : spdlog::level::info );
-      // https://github.com/gabime/spdlog/wiki/Custom-formatting
+      spdlog::cfg::load_env_levels();
       spdlog::set_pattern( "[%H:%M:%S.%e][%t][%^%=5!l%$] %v" );
 
       util::AsyncTaskDispatcher dispatcher;

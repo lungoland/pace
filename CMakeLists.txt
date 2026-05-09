@@ -73,6 +73,20 @@ endif()
 add_executable(pace src/common/main.cpp)
 target_link_libraries(pace PRIVATE pace::core)
 
+if(WIN32)
+    # Build Windows Release as a GUI subsystem app so no console window is allocated.
+    set_target_properties(pace PROPERTIES
+        WIN32_EXECUTABLE $<CONFIG:Release>
+    )
+
+    # Keep using main() as the entry point for MSVC in GUI subsystem builds.
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+        target_link_options(pace PRIVATE
+            "$<$<CONFIG:Release>:/ENTRY:mainCRTStartup>"
+        )
+    endif()
+endif()
+
 if(PACE_ENABLE_STATIC_LINKING AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     # Force static linking of all libraries for portable builds
     target_link_options(pace PRIVATE -static -static-libstdc++ -static-libgcc)
@@ -133,8 +147,8 @@ if(PACE_BUILD_TESTS)
     if(BUILD_TESTING)
         find_package(Catch2 CONFIG REQUIRED)
         set(PACE_TEST_SOURCES
-            tests/ConfigTests.cpp
             tests/EntityModelTests.cpp
+            tests/PeriodicSchedulerTests.cpp
             tests/QueueAwaiterTests.cpp
             tests/TaskTests.cpp
             tests/TaskQueueTests.cpp

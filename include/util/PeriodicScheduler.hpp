@@ -1,5 +1,6 @@
 #pragma once
 
+#include "util/Executor.hpp"
 #include "util/Task.hpp"
 #include "util/TimerAwaiter.hpp"
 
@@ -8,10 +9,10 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <stop_token>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <vector>
 
 #include <spdlog/spdlog.h>
@@ -33,7 +34,6 @@ namespace util
 
          explicit PeriodicScheduler( std::vector<Job> configuredJobs = {} )
             : jobs_( std::move( configuredJobs ) )
-            , worker_( [ this ]( std::stop_token stopToken ) { run( stopToken ); } )
          {}
 
          ~PeriodicScheduler()
@@ -45,6 +45,23 @@ namespace util
          PeriodicScheduler& operator=( const PeriodicScheduler& ) = delete;
          PeriodicScheduler( PeriodicScheduler&& )                 = delete;
          PeriodicScheduler& operator=( PeriodicScheduler&& )      = delete;
+
+         /// @brief Starts the scheduler coroutine on the given executor.
+         /// Must be called once before any jobs can fire. The coroutine runs
+         /// cooperatively on @p executor alongside whatever drives that executor
+         /// (e.g. sync_wait for the main AsyncTaskDispatcher).
+         void start( std::shared_ptr<Executor> executor )
+         {
+            std::call_once( startOnce_,
+                            [ this, exec = std::move( executor ) ]() mutable
+                            {
+                               schedulerTask_.emplace( run() );
+                               auto& p = schedulerTask_->handle.promise();
+                               p.set_executor( std::move( exec ) );
+                               p.started = true;
+                               schedulerTask_->handle.resume();
+                            } );
+         }
 
          void addJob( Job job )
          {
@@ -64,99 +81,106 @@ namespace util
             wakeSource_.request_stop();
          }
 
+         /// @brief Async stop — signals the scheduler and co_awaits completion.
+         /// Must be called from a coroutine running on the same executor as the scheduler
+         /// (e.g. inside a Task dispatched on the AsyncTaskDispatcher).
+         Task<bool> stopAsync()
+         {
+            std::call_once( stopOnce_, [ this ] { stopSource_.request_stop(); } );
+            if( schedulerTask_.has_value() )
+            {
+               co_await *schedulerTask_;
+            }
+            co_return true;
+         }
+
+         /// @brief Synchronous stop — blocks until the scheduler coroutine finishes.
+         /// Safe to call from outside a coroutine context (e.g. the destructor).
+         /// Do NOT call from the same executor thread that drives the scheduler.
          void stop()
          {
-            std::call_once( stopOnce_,
-                            [ this ]
-                            {
-                               if( ! worker_.joinable() )
-                               {
-                                  return;
-                               }
-
-                               worker_.request_stop();
-                               worker_.join();
-                            } );
+            std::call_once( stopOnce_, [ this ] { stopSource_.request_stop(); } );
+            if( schedulerTask_.has_value() )
+            {
+               auto&            p = schedulerTask_->handle.promise();
+               std::unique_lock lock{ p.mutex };
+               p.cv.wait( lock, [ &p ] { return p.done; } );
+            }
          }
 
       private:
 
-         /// @brief Runs the scheduler loop.
-         /// @param stopToken Token to signal stopping the scheduler.
+         /// @brief Runs the scheduler loop as a coroutine on the caller's executor.
+         /// @note stopSource_ must be signalled to exit the loop.
          /// TODO split run into smaller functions .. I think
-         void run( std::stop_token stopToken )
+         Task<bool> run()
          {
+            const std::stop_token stopToken = stopSource_.get_token();
             try
             {
-               sync_wait(
-                  [ this, stopToken ]() -> Task<bool>
+               std::vector<JobSchedule> schedules;
+               while( ! stopToken.stop_requested() )
+               {
+                  std::stop_token wakeToken = syncSchedules( schedules );
+                  if( schedules.empty() )
                   {
-                     std::vector<JobSchedule> schedules;
-                     while( ! stopToken.stop_requested() )
+                     std::stop_source   combined;
+                     std::stop_callback cb1( stopToken, [ &combined ] { combined.request_stop(); } );
+                     std::stop_callback cb2( wakeToken, [ &combined ] { combined.request_stop(); } );
+                     co_await sleep_for( std::chrono::seconds{ 1 }, combined.get_token() );
+                     continue;
+                  }
+
+                  const auto nextIt = std::min_element( std::begin( schedules ), std::end( schedules ),
+                                                        []( const JobSchedule& lhs, const JobSchedule& rhs )
+                                                        { return lhs.nextDue < rhs.nextDue; } );
+
+                  const auto now = Clock::now();
+                  if( nextIt != std::end( schedules ) && nextIt->nextDue > now )
+                  {
+                     std::stop_source   combined;
+                     std::stop_callback cb1( stopToken, [ &combined ] { combined.request_stop(); } );
+                     std::stop_callback cb2( wakeToken, [ &combined ] { combined.request_stop(); } );
+                     co_await sleep_for( nextIt->nextDue - now, combined.get_token() );
+                  }
+
+                  if( stopToken.stop_requested() )
+                  {
+                     spdlog::info( "PeriodicScheduler stopping..." );
+                     break;
+                  }
+
+                  if( wakeToken.stop_requested() )
+                  {
+                     spdlog::trace( "PeriodicScheduler woke up early due to job changes, recalculating schedules..." );
+                     continue;
+                  }
+
+                  const auto              fireTime = Clock::now();
+                  std::vector<Task<bool>> dueWork;
+
+                  for( auto& entry : schedules )
+                  {
+                     if( entry.nextDue > fireTime )
                      {
-                        std::stop_token wakeToken = syncSchedules( schedules );
-                        if( schedules.empty() )
-                        {
-                           std::stop_source   combined;
-                           std::stop_callback cb1( stopToken, [ &combined ] { combined.request_stop(); } );
-                           std::stop_callback cb2( wakeToken, [ &combined ] { combined.request_stop(); } );
-                           co_await sleep_for( std::chrono::seconds{ 1 }, combined.get_token() );
-                           continue;
-                        }
-
-                        const auto nextIt = std::min_element( std::begin( schedules ), std::end( schedules ),
-                                                              []( const JobSchedule& lhs, const JobSchedule& rhs )
-                                                              { return lhs.nextDue < rhs.nextDue; } );
-
-                        const auto now = Clock::now();
-                        if( nextIt != std::end( schedules ) && nextIt->nextDue > now )
-                        {
-                           std::stop_source   combined;
-                           std::stop_callback cb1( stopToken, [ &combined ] { combined.request_stop(); } );
-                           std::stop_callback cb2( wakeToken, [ &combined ] { combined.request_stop(); } );
-                           co_await sleep_for( nextIt->nextDue - now, combined.get_token() );
-                        }
-
-                        if( stopToken.stop_requested() )
-                        {
-                           spdlog::info( "PeriodicScheduler stopping..." );
-                           break;
-                        }
-
-                        if( wakeToken.stop_requested() )
-                        {
-                           spdlog::trace( "PeriodicScheduler woke up early due to job changes, recalculating schedules..." );
-                           continue;
-                        }
-
-                        const auto              fireTime = Clock::now();
-                        std::vector<Task<bool>> dueWork;
-
-                        for( auto& entry : schedules )
-                        {
-                           if( entry.nextDue > fireTime )
-                           {
-                              continue;
-                           }
-
-                           /// TODO: Could be a race condition if the job is removed after execute() but before
-                           /// running task using co_await ...
-                           dueWork.emplace_back( entry.execute() );
-                           do
-                           {
-                              entry.nextDue += entry.interval;
-                           }
-                           while( entry.nextDue <= fireTime );
-                        }
-
-                        if( ! dueWork.empty() )
-                        {
-                           co_await all( std::move( dueWork ) );
-                        }
+                        continue;
                      }
 
-                     co_return true;
-                  }() );
+                     /// TODO: Could be a race condition if the job is removed after execute() but before
+                     /// running task using co_await ...
+                     dueWork.emplace_back( entry.execute() );
+                     do
+                     {
+                        entry.nextDue += entry.interval;
+                     }
+                     while( entry.nextDue <= fireTime );
+                  }
+
+                  if( ! dueWork.empty() )
+                  {
+                     co_await all( std::move( dueWork ) );
+                  }
+               }
             }
             catch( const std::exception& ex )
             {
@@ -166,6 +190,7 @@ namespace util
             {
                spdlog::error( "PeriodicScheduler encountered an unknown non-std exception" );
             }
+            co_return true;
          }
 
          using Clock = std::chrono::steady_clock;
@@ -217,11 +242,13 @@ namespace util
             return wakeSource_.get_token();
          }
 
-         std::mutex       mutex_{};
-         std::stop_source wakeSource_{};
-         std::vector<Job> jobs_{};
-         std::jthread     worker_{};
-         std::once_flag   stopOnce_{};
+         std::mutex                mutex_{};
+         std::stop_source          stopSource_{};
+         std::stop_source          wakeSource_{};
+         std::vector<Job>          jobs_{};
+         std::optional<Task<bool>> schedulerTask_{};
+         std::once_flag            stopOnce_{};
+         std::once_flag            startOnce_{};
    };
 
 } // namespace util

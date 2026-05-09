@@ -14,11 +14,11 @@ namespace pace::sensors
    {
       struct GameSensorConfig : entities::config::EntityConfig
       {
-            std::vector<std::string> ignoreProcesses;
+            std::vector<std::string> exclude;
 
-            // GameSensorConfig adds 'ignoreProcesses' as an optional field
+            // GameSensorConfig adds 'exclude' as an optional field
             // Inherits 'name' (required) and 'interval' (default) from EntityConfig
-            NLOHMANN_DEFINE_DERIVED_TYPE_INTRUSIVE_WITH_DEFAULT( GameSensorConfig, entities::config::EntityConfig, ignoreProcesses )
+            NLOHMANN_DEFINE_DERIVED_TYPE_INTRUSIVE_WITH_DEFAULT( GameSensorConfig, entities::config::EntityConfig, exclude )
       };
    }
 
@@ -29,19 +29,38 @@ namespace pace::sensors
    {
       public:
 
+         static constexpr std::string_view kType = "game";
+         using Config                            = config::GameSensorConfig;
+
          using BaseSensor::BaseSensor;
 
          util::Task<bool> fetch() const override
          {
             auto candidates = impl::procsWithLoaded3DLibs();
-            for( const auto& ignore : config.ignoreProcesses )
+            for( const auto& ignore : config.exclude )
             {
                candidates.erase( ignore );
             }
 
-            // Given the list of candidate processes .. this apraoch is not scaleable ...
+            // Given the list of candidate processes .. this approach is not scalable ...
+            // TODO: Add button to auto populate exclude list
+            // But code in here, or implement a home-assistant automation
+            // TODO: once this works, we could also code a home-assistant automation to auto-generate
+            // a proc switch for detected games
             spdlog::trace( "GameSensor found candidate processes: [{}]", fmt::join( candidates, ", " ) );
+            lastCandidates = candidates;
             co_return ! candidates.empty();
          }
+
+         std::optional<nlohmann::json> getAttributes() const override
+         {
+            return std::make_optional<nlohmann::json>( {
+               { "processes", lastCandidates }
+            } );
+         }
+
+      private:
+
+         mutable std::set<std::string> lastCandidates;
    };
 } // namespace pace::sensors

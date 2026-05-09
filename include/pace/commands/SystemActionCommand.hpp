@@ -14,6 +14,14 @@ namespace pace::commands
    {
       public:
 
+         // clang-format off
+         static constexpr std::string_view kType =
+            Action == SystemAction::Lock     ? "lock"     :
+            Action == SystemAction::Sleep    ? "sleep"    :
+            Action == SystemAction::Reboot   ? "reboot"   :
+                                              "shutdown";
+         // clang-format on
+
          using BaseCommand::BaseCommand;
 
          std::string name() const override

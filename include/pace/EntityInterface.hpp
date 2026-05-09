@@ -132,6 +132,7 @@ namespace pace::entities
    enum class EntityType
    {
       Button,       ///< Stateless trigger entity (e.g., lock, reboot)
+      Text,         ///< Stateless trigger with payload (e.g. kill)
       Sensor,       ///< Read-only polled state with generic type
       BinarySensor, ///< Read-only polled boolean state
       Notify,       ///< One-way notification trigger
@@ -180,19 +181,28 @@ namespace pace::entities
          /// @return JSON payload in Home Assistant MQTT Discovery format, or std::nullopt if discovery not supported
          virtual nlohmann::json getDiscoveryPayload() const;
 
+         /// @brief Optional JSON attributes for this entity, published alongside state.
+         ///
+         /// Override to expose structured detail data (e.g. process lists, raw readings).
+         /// The returned object is serialised and published to attributesTopic() whenever
+         /// it changes, independently of the main state debounce.
+         ///
+         /// @return JSON object with attribute key/value pairs, or std::nullopt if not supported.
+         virtual std::optional<nlohmann::json> getAttributes() const;
+
 
          /// @brief Get the base topic for commands targeting this entity
          /// Default: "command/{name}/set"
          virtual std::string commandTopic() const;
 
-         /// @brief Get the base topic for command responses from this entity
-         /// Default: "command/{name}/status"
-         virtual std::string statusTopic() const;
-
          /// @brief Get the base topic for publishing state from this entity
          /// Default: "pace/{node}/sensor/{name}/state" for sensors
          /// Default: "pace/{node}/switch/{name}/state" for switches
          virtual std::string stateTopic() const;
+
+         /// @brief Topic for publishing JSON attributes.
+         /// Default: "sensor/{name}/attributes"
+         virtual std::string attributesTopic() const;
 
       protected:
 

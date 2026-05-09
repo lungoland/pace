@@ -1,18 +1,5 @@
 #include "pace/Pace.hpp"
 
-#include "pace/commands/BaseCommand.hpp"
-#include "pace/commands/ExecCommand.hpp"
-#include "pace/commands/KillCommand.hpp"
-#include "pace/commands/NullCommand.hpp"
-#include "pace/commands/PingCommand.hpp"
-#include "pace/commands/StopCommand.hpp"
-#include "pace/commands/SystemActionCommand.hpp"
-
-#include "pace/sensors/BaseSensor.hpp"
-#include "pace/sensors/CountSensor.hpp"
-#include "pace/sensors/GameSensor.hpp"
-#include "pace/sensors/ProcSensor.hpp"
-
 #include <fmt/format.h>
 
 namespace pace
@@ -24,6 +11,7 @@ namespace pace
          switch( type )
          {
             case entities::EntityType::Button : return "button";
+            case entities::EntityType::Text : return "text";
             case entities::EntityType::Sensor : return "sensor";
             case entities::EntityType::BinarySensor : return "binary_sensor";
             case entities::EntityType::Notify : return "notify";
@@ -50,6 +38,7 @@ namespace pace
 
    util::Task<bool> Pace::start()
    {
+      scheduler.start( co_await util::current_executor() );
       bool ret = co_await mqtt.connect();
       ret &= co_await entityFactory.subscribe();
       co_return ret;
@@ -57,7 +46,7 @@ namespace pace
 
    util::Task<bool> Pace::stop()
    {
-      scheduler.stop();
+      co_await scheduler.stopAsync();
       co_await mqtt.disconnect();
 
       // does not really fit here .. we do not start the dispatcher

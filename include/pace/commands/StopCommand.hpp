@@ -9,6 +9,8 @@ namespace pace::commands
    {
       public:
 
+         static constexpr std::string_view kType = "stop";
+
          StopCommand( MqttService& mqttService, pace::Pace& pace )
             : BaseCommand( mqttService )
             , service( pace )

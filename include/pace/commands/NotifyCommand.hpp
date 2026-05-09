@@ -10,6 +10,8 @@ namespace pace::commands
    {
       public:
 
+         static constexpr std::string_view kType = "notify";
+
          using BaseCommand::BaseCommand;
 
          entities::EntityType type() const override

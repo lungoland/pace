@@ -10,8 +10,6 @@
 #include <string>
 #include <vector>
 
-#include <spdlog/spdlog.h>
-
 namespace pace::sensors::impl
 {
    namespace
@@ -210,8 +208,6 @@ namespace pace::sensors::impl
 
                   std::string comm;
                   std::getline( commFile, comm );
-
-                  // spdlog::debug( "Found game process: {} (PID {}) with GPU library {}", comm, std::stoi( pid ), lib );
                   procs.insert( comm );
                }
             }

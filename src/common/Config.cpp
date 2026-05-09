@@ -92,6 +92,7 @@ namespace pace
 #endif
       }
 
+
       void loadDotEnvIfPresent( const std::string& path = ".env" )
       {
          std::ifstream in{ path };
@@ -112,28 +113,12 @@ namespace pace
          }
       }
 
+
       std::string readEnv( const char* name, const std::string& fallback = {} )
       {
          if( const char* value = std::getenv( name ); value != nullptr )
          {
             return { value };
-         }
-         return fallback;
-      }
-
-      bool parseBool( const std::string& value, bool fallback )
-      {
-         std::string normalized = value;
-         std::transform( normalized.begin(), normalized.end(), normalized.begin(),
-                         []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
-
-         if( normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "on" )
-         {
-            return true;
-         }
-         if( normalized == "0" || normalized == "false" || normalized == "no" || normalized == "off" )
-         {
-            return false;
          }
          return fallback;
       }
@@ -154,7 +139,6 @@ namespace pace
             return fallback;
          }
       }
-
    } // namespace
 
    Config Config::fromEnvironment()
@@ -168,7 +152,6 @@ namespace pace
       cfg.username  = readEnv( "PACE_MQTT_USERNAME", cfg.username );
       cfg.password  = readEnv( "PACE_MQTT_PASSWORD", cfg.password );
       cfg.qos       = parseInt( readEnv( "PACE_MQTT_QOS" ), cfg.qos );
-      cfg.dryRun    = ! parseBool( readEnv( "PACE_ENABLE_SYSTEM_ACTIONS" ), false );
       return cfg;
    }
 

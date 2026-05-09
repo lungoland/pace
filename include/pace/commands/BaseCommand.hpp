@@ -29,11 +29,18 @@ namespace pace::commands
          using ResponseType = util::expected<TResponse, std::string>;
          using DataType     = std::optional<std::string>;
 
-         /// @brief Type of this entity.
-         /// @return EntityType indicating whether this is a button, sensor, switch, etc.
+         /// @brief Type of this entity. For Command this usually is a button
+         /// or text depending on whether the command takes arguments.
          virtual entities::EntityType type() const
          {
-            return entities::EntityType::Button;
+            if constexpr( std::is_same_v<TRequest, std::string> )
+            {
+               return entities::EntityType::Text;
+            }
+            else
+            {
+               return entities::EntityType::Button;
+            }
          }
 
          /// @brief Subscribe to MQTT topics and set up handlers for this entity
@@ -64,6 +71,9 @@ namespace pace::commands
             return mqtt.unsubscribe( commandTopic() );
          }
 
+         /// @brief Performs the command
+         /// @param request The command argument, if any. For commands without arguments, this will be NoArgs.
+         /// @return The result of the command execution. For commands without a response, this will be NoResponse.
          virtual util::Task<ResponseType> execute( TRequest request ) const = 0;
    };
 } // namespace pace::commands
