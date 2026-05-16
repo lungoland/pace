@@ -9,6 +9,7 @@
 #include "pace/sensors/BaseSensor.hpp"
 
 #include "util/AsyncTaskDispatcher.hpp"
+#include "util/Logger.hpp"
 #include "util/PeriodicScheduler.hpp"
 #include "util/Task.hpp"
 
@@ -19,7 +20,11 @@ namespace pace
       public:
 
          explicit Pace( const Config& cfg, util::AsyncTaskDispatcher& dispatcher );
-         ~Pace() = default;
+         Pace( const Pace& )            = delete;
+         Pace& operator=( const Pace& ) = delete;
+         Pace( Pace&& )                 = delete;
+         Pace& operator=( Pace&& )      = delete;
+         ~Pace()                        = default;
 
          /// @brief Starts the service by connecting to MQTT and subscribing to relevant topics.
          /// @return true once all subscriptions are successful; false otherwise.
@@ -39,6 +44,8 @@ namespace pace
 
       private:
 
+         util::Logger logger = util::getLogger( "Pace" );
+
          /// @brief Base configuration - mostly MQTT relevant.
          Config config;
 
@@ -53,6 +60,6 @@ namespace pace
          pace::EntityFactory entityFactory;
 
          /// @brief Unified registry of all entities (commands, sensors, switches, notify, etc.)
-         std::vector<std::shared_ptr<entities::EntityInterface>> entities;
+         std::vector<std::shared_ptr<entities::EntityInterface>> entities{};
    };
 } // namespace pace

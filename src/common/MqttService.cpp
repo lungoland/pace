@@ -8,7 +8,6 @@
 #include <mqtt/connect_options.h>
 #include <mqtt/create_options.h>
 #include <mqtt/topic.h>
-#include <spdlog/spdlog.h>
 
 #include <ranges>
 #include <string>
@@ -27,13 +26,11 @@ namespace pace
                    .finalize() )
       , baseTopic( fmt::format( "pace/{}/", config.nodeId ) )
       , dispatcher( dispatcher_ )
-   {
-      // dispatcher.post( [ this ]() { return connect(); } );
-   }
+   {}
 
    util::Task<bool> MqttService::connect()
    {
-      spdlog::info( "Connecting to MQTT broker '{}'", config.brokerUri );
+      logger->info( "Connecting to MQTT broker '{}'", config.brokerUri );
       co_await client.connect( mqtt::connect_options_builder{}
                                   .clean_session( true )
                                   .automatic_reconnect( true )
@@ -56,7 +53,7 @@ namespace pace
 
    util::Task<bool> MqttService::disconnect()
    {
-      spdlog::info( "Disconnecting from MQTT broker '{}'", config.brokerUri );
+      logger->info( "Disconnecting from MQTT broker '{}'", config.brokerUri );
       if( ! client.is_connected() )
       {
          co_return true;
@@ -71,7 +68,7 @@ namespace pace
    util::Task<bool> MqttService::subscribe( std::string topic, MessageHandler handler )
    {
       auto fqTopic = fmt::format( "{}{}", baseTopic, topic );
-      spdlog::debug( " @  {}", fqTopic );
+      logger->debug( " @  {}", fqTopic );
 
       topicHandlers.emplace( fqTopic, std::move( handler ) );
       if( ! client.is_connected() )
@@ -85,7 +82,7 @@ namespace pace
    util::Task<bool> MqttService::unsubscribe( std::string topic )
    {
       auto fqTopic = fmt::format( "{}{}", baseTopic, topic );
-      spdlog::debug( " @  {}", fqTopic );
+      logger->debug( " @  {}", fqTopic );
 
       co_await client.unsubscribe( fqTopic );
       topicHandlers.erase( fqTopic );
@@ -95,8 +92,22 @@ namespace pace
 
    util::Task<bool> MqttService::publish( const std::string& topic, std::string payload, bool retained )
    {
+      // In case the connection was teared down - i.e. StopCommand was executed, we can no longer
+      // pubish messages. So just stop here.
+      if( ! client.is_connected() )
+      {
+         co_return false;
+      }
+
       auto fqTopic = qualifyTopic( topic );
-      spdlog::debug( "<-- {}: {}", fqTopic, payload );
+      if( payload.size() > 100 )
+      {
+         logger->debug( "<-- {}: {} bytes", fqTopic, payload.size() );
+      }
+      else
+      {
+         logger->debug( "<-- {}: {}", fqTopic, payload );
+      }
       co_await client.publish( fqTopic, payload, config.qos, retained );
       co_return true;
    }
@@ -112,7 +123,7 @@ namespace pace
    }
 
 
-   void MqttService::onMessage( const mqtt::const_message_ptr msg )
+   void MqttService::onMessage( mqtt::const_message_ptr msg )
    {
       for( const auto& [ topicFilter, handler ] : topicHandlers )
       {
@@ -122,8 +133,15 @@ namespace pace
          {
             /// Perform Context Switch between MQTT callback thread
             /// and our worker ... should/can this be a co_await?
-            spdlog::debug( "--> {}: {}", msg->get_topic(), msg->to_string() );
-            dispatcher.post( std::bind( handler, msg ) );
+            if( msg->get_payload().size() > 100 )
+            {
+               logger->debug( "--> {}: {} bytes", msg->get_topic(), msg->get_payload().size() );
+            }
+            else
+            {
+               logger->debug( "--> {}: {}", msg->get_topic(), msg->to_string() );
+            }
+            dispatcher.post( msg->get_topic(), std::bind( handler, msg ) );
          }
       }
    }

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "util/QueueAwaiter.hpp"
+#include "util/Logger.hpp"
 #include "util/Task.hpp"
 #include "util/TaskQueue.hpp"
 
@@ -21,46 +21,16 @@ namespace util
             queue.reset();
          }
 
-         bool isWorkerActive() const noexcept
+         void post( std::string name, WorkItem work )
          {
-            return workerActive.load( std::memory_order_acquire );
-         }
-
-         bool isWorkerExecuting() const noexcept
-         {
-            return workerExecuting.load( std::memory_order_acquire );
-         }
-
-         void post( WorkItem work )
-         {
-            queue.post( std::move( work ) );
-         }
-
-         Task<bool> switchToWorker( Task<bool> work )
-         {
-            co_return co_await QueueAwaiter<bool>( queue, std::move( work ) );
-         }
-
-         /**
-          * @brief Routes work to the dispatcher thread, or runs it inline if already there.
-          *
-          * Inline when:
-          *   - No worker is active (dispatcher not running) — nothing to hop to.
-          *   - Already executing inside a dispatched work item — hopping would self-deadlock.
-          * Otherwise: context-switch via the queue so the caller runs on the task thread.
-          */
-         static constexpr bool dispatchInlineWhen( bool workerActive, bool workerExecuting ) noexcept
-         {
-            return ! workerActive || workerExecuting;
-         }
-
-         Task<bool> dispatch( Task<bool> work )
-         {
-            if( dispatchInlineWhen( isWorkerActive(), isWorkerExecuting() ) )
-            {
-               co_return co_await std::move( work );
-            }
-            co_return co_await switchToWorker( std::move( work ) );
+            queue.post(
+               [ n = std::move( name ), w = std::move( work ), logger = logger ]() mutable -> Task<bool>
+               {
+                  logger->debug( "running task: '{}'", n );
+                  const bool result = co_await w();
+                  logger->debug( "finished task: '{}' (result={})", n, result );
+                  co_return result;
+               } );
          }
 
          Task<bool> run()
@@ -76,8 +46,6 @@ namespace util
 
                struct executing_guard
                {
-                     std::atomic_bool& flag;
-
                      explicit executing_guard( std::atomic_bool& f )
                         : flag( f )
                      {
@@ -88,6 +56,8 @@ namespace util
                      {
                         flag.store( false, std::memory_order_release );
                      }
+
+                     std::atomic_bool& flag;
                };
 
                executing_guard guard{ workerExecuting };
@@ -101,6 +71,7 @@ namespace util
 
          void stop()
          {
+            logger->info( "Stop requested" );
             if( stopRequested.exchange( true, std::memory_order_acq_rel ) )
             {
                return;
@@ -110,6 +81,8 @@ namespace util
          }
 
       private:
+
+         mutable util::Logger logger = util::getLogger( "Dispatcher" );
 
          TaskQueue<WorkItem> queue;
          std::atomic_bool    stopRequested{ false };

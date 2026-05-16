@@ -16,7 +16,7 @@ namespace pace::switches
    {
       struct ProcessSwitchConfig : entities::config::EntityConfig
       {
-            std::string imagePath;
+            std::string imagePath{};
       };
 
       // ProcessSwitchConfig adds 'imagePath' as required field
@@ -25,7 +25,7 @@ namespace pace::switches
    }
 
    /// @brief Switch to start/stop a managed process
-   class ProcessSwitch : public BaseSwitch<bool, config::ProcessSwitchConfig>
+   class ProcessSwitch : public BaseSwitch<ProcessSwitch, bool, config::ProcessSwitchConfig>
    {
       public:
 
@@ -48,7 +48,7 @@ namespace pace::switches
          util::Task<ResponseType> execute( bool request ) override
          {
             auto running = co_await fetch();
-            spdlog::info( "Process '{}' is currently {}; wanted {}", processName, running ? "running" : "stopped",
+            logger->info( "Process '{}' is currently {}; wanted {}", processName, running ? "running" : "stopped",
                           request ? "running" : "stopped" );
             if( request == running )
             {
@@ -63,13 +63,13 @@ namespace pace::switches
                // Maybe systemd has some wraper?
                // TODO: Also it seems that we cannot SIGTERM the child??
                // TODO: Maybe firefox is just special as it surrived termination of pace
-               spdlog::debug( "Starting process '{}' with image path '{}'", processName, config.imagePath );
+               logger->debug( "Starting process '{}' with image path '{}'", processName, config.imagePath );
                commands::impl::spawnNewProcess( config.imagePath );
                co_return true;
             }
             else
             {
-               spdlog::debug( "Killing process '{}' by name", processName );
+               logger->debug( "Killing process '{}' by name", processName );
                co_await commands::impl::killProcessByName( processName );
                co_return false;
             }
@@ -78,7 +78,7 @@ namespace pace::switches
          util::Task<bool> fetch() const override
          {
             auto pids = sensors::impl::findPidsByName( processName );
-            spdlog::trace( "Relevant PIDs for process '{}': [{}]", processName, fmt::join( pids, ", " ) );
+            logger->trace( "Relevant PIDs for process '{}': [{}]", processName, fmt::join( pids, ", " ) );
             co_return pids.size() > 0;
          }
 

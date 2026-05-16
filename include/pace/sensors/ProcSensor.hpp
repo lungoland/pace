@@ -11,7 +11,7 @@ namespace pace::sensors
    {
       struct ProcSensorConfig : entities::config::EntityConfig
       {
-            std::string processName;
+            std::string processName{};
       };
 
       // ProcSensorConfig adds 'processName' as required field
@@ -21,13 +21,15 @@ namespace pace::sensors
 
    /// @brief A sensor that returns true if a process is running.
    /// TODO Move to switch
-   class ProcSensor : public BaseSensor<bool, config::ProcSensorConfig>
+   class ProcSensor : public BaseSensor<ProcSensor, bool, config::ProcSensorConfig>
    {
       public:
 
+         static constexpr std::string_view kType = "proc";
+
          using BaseSensor::BaseSensor;
 
-         util::Task<bool> fetch() const override
+         [[nodiscard]] util::Task<bool> fetch() const override
          {
             auto pids = impl::findPidsByName( config.processName );
             co_return ! pids.empty();

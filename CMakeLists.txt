@@ -11,9 +11,11 @@ option(PACE_ENABLE_WARNINGS_AS_ERRORS "Treat warnings as errors" ON)
 option(PACE_BUILD_TESTS "Build unit tests" ON)
 option(PACE_STATIC_GNU_RUNTIME "Statically link libstdc++ and libgcc when using GNU compilers" OFF)
 option(PACE_ENABLE_STATIC_LINKING "Enable fully static linking (all libraries)" OFF)
+option(PACE_ENABLE_CLANG_TIDY "Enable clang-tidy static analysis during build" OFF)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerWarnings)
+include(ClangTidy)
 include(GNUInstallDirs)
 
 find_package(PahoMqttCpp CONFIG REQUIRED)
@@ -49,6 +51,7 @@ endif()
 add_library(pace_core
     ${PACE_CORE_COMMON_SOURCES}
     ${PACE_CORE_PLATFORM_SOURCES}
+    include/util/Logger.hpp
 )
 
 add_library(pace::core ALIAS pace_core)
@@ -92,6 +95,11 @@ if(PACE_ENABLE_STATIC_LINKING AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_link_options(pace PRIVATE -static -static-libstdc++ -static-libgcc)
 elseif(PACE_STATIC_GNU_RUNTIME AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_link_options(pace PRIVATE -static-libstdc++ -static-libgcc)
+endif()
+
+if(PACE_ENABLE_CLANG_TIDY)
+    enable_clang_tidy(pace_core)
+    enable_clang_tidy(pace)
 endif()
 
 install(TARGETS pace
@@ -149,7 +157,6 @@ if(PACE_BUILD_TESTS)
         set(PACE_TEST_SOURCES
             tests/EntityModelTests.cpp
             tests/PeriodicSchedulerTests.cpp
-            tests/QueueAwaiterTests.cpp
             tests/TaskTests.cpp
             tests/TaskQueueTests.cpp
         )

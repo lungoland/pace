@@ -31,7 +31,7 @@ namespace pace::switches
    ///
    /// @tparam TState Type of the state value (e.g., bool for on/off, int for level)
    /// @tparam TConfig Type of the configuration struct (must derive from EntityConfig)
-   template <typename TState, typename TConfig = entities::config::EntityConfig>
+   template <typename TDerived, typename TState, typename TConfig = entities::config::EntityConfig>
    class BaseSwitch : public entities::EntityInterface
    {
          static_assert( std::is_base_of_v<entities::config::EntityConfig, TConfig>, "TConfig must derive from EntityConfig" );
@@ -47,13 +47,13 @@ namespace pace::switches
 
          /// @brief Name of the entity. Used to construct MQTT topics.
          /// @return Entity name (e.g., "lock", "count", "ping_status")
-         std::string name() const override
+         [[nodiscard]] std::string name() const override
          {
             return config.name;
          }
 
          /// @brief Entity type is always Switch
-         entities::EntityType type() const final
+         [[nodiscard]] entities::EntityType type() const final
          {
             return entities::EntityType::Switch;
          }
@@ -69,7 +69,7 @@ namespace pace::switches
 
                                       if( ! response )
                                       {
-                                         spdlog::error( "Command {} execution failed: {}", name(), response.error() );
+                                         logger->error( "Command {} execution failed: {}", name(), response.error() );
                                          co_return false;
                                       }
 
@@ -83,7 +83,7 @@ namespace pace::switches
             co_return co_await mqtt.unsubscribe( commandTopic() );
          }
 
-         std::optional<std::chrono::milliseconds> pollingInterval() const override
+         [[nodiscard]] std::optional<std::chrono::milliseconds> pollingInterval() const override
          {
             return config.interval;
          }
@@ -109,31 +109,32 @@ namespace pace::switches
 
          /// @brief Get MQTT state topic for this switch
          /// Default: pace/switch/{name}/state
-         std::string stateTopic() const override
+         [[nodiscard]] std::string stateTopic() const override
          {
             return fmt::format( "switch/{}/state", name() );
          }
 
          /// @brief Get MQTT command topic for this switch
          /// Default: pace/switch/{name}/set
-         std::string commandTopic() const override
+         [[nodiscard]] std::string commandTopic() const override
          {
             return fmt::format( "switch/{}/set", name() );
          }
 
       protected:
 
-         TConfig config;
+         util::Logger logger = util::getLogger( std::string{ TDerived::kType } );
+         TConfig      config{};
 
       private:
 
          static constexpr int32_t MAX_DEBOUNCE = 5;
 
          /// @brief Cache the last published data to implement debounce logic
-         bool lastData;
+         bool lastData{};
          /// @brief Counter to track how many times the same data has been returned by fetch_ to implement debounce logic
          /// TODO: Add Reset Command to reset debounce?
-         int32_t debounce = 0;
+         int32_t debounce{};
    };
 
 } // namespace pace::switches

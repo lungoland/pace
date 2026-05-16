@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include "util/AsyncTaskDispatcher.hpp"
 #include "util/Executor.hpp"
 #include "util/PeriodicScheduler.hpp"
 #include "util/Task.hpp"
@@ -15,14 +16,23 @@ namespace
    /// Drives the scheduler's executor on a background thread for the duration of a test.
    struct SchedulerDriver
    {
+         util::AsyncTaskDispatcher       dispatcher;
          util::PeriodicScheduler         scheduler;
          std::shared_ptr<util::Executor> executor;
+         util::Task<bool>                dispatcherTask;
          std::thread                     executorThread;
 
          explicit SchedulerDriver()
             : executor( std::make_shared<util::Executor>() )
+            , dispatcherTask( dispatcher.run() )
          {
-            scheduler.start( executor );
+            // Start the dispatcher's run loop on the shared executor
+            auto& dp = dispatcherTask.handle.promise();
+            dp.set_executor( executor );
+            dp.started = true;
+            dispatcherTask.handle.resume(); // suspends immediately at queue.next()
+
+            scheduler.start( executor, dispatcher );
             executorThread = std::thread{ [ this ]
                                           {
                                              while( executor->run_one() )
@@ -33,6 +43,7 @@ namespace
          ~SchedulerDriver()
          {
             scheduler.stop();
+            dispatcher.stop();
             // Null handle makes run_one() return false, unblocking the drain thread.
             executor->post( {} );
             if( executorThread.joinable() )

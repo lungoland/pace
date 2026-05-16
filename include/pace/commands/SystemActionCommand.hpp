@@ -10,7 +10,7 @@ namespace pace::commands
 {
    /// @brief Executes a system action such as lock, sleep, reboot, or shutdown.
    template <SystemAction Action>
-   class SystemActionCommand : public BaseCommand<>
+   class SystemActionCommand : public BaseCommand<SystemActionCommand<Action>>
    {
       public:
 
@@ -22,7 +22,8 @@ namespace pace::commands
                                               "shutdown";
          // clang-format on
 
-         using BaseCommand::BaseCommand;
+         using BaseCommand<SystemActionCommand<Action>>::BaseCommand;
+         using ResponseType = typename BaseCommand<SystemActionCommand<Action>>::ResponseType;
 
          std::string name() const override
          {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pace/Config.hpp"
+#include "util/Logger.hpp"
 #include "util/Task.hpp"
 #include "util/expected.hpp"
 
@@ -15,7 +16,6 @@
 #include <functional>
 #include <map>
 #include <memory>
-#include <spdlog/spdlog.h>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -27,7 +27,7 @@ namespace util
 
 namespace pace
 {
-   /// @brief By now its a wrapper around pahe ... so consider renaming?
+   /// @brief By now its a wrapper around paho ... so consider renaming?
    class MqttService
    {
       public:
@@ -67,16 +67,17 @@ namespace pace
          util::Task<bool> subscribe( const std::string&                                                          topic,
                                      std::function<util::Task<bool>( const std::string& topic, const Payload& )> handler )
          {
-            auto deserializer = [ handler = std::move( handler ) ]( mqtt::const_message_ptr msg ) -> util::Task<bool>
+            auto deserializer = [ handler = std::move( handler ), logger = logger ]( mqtt::const_message_ptr msg ) -> util::Task<bool>
             {
                if( auto body = deserializePayload<Payload>( msg ); body )
                {
                   co_await handler( msg->get_topic(), *body );
+                  co_return true;
                }
                else
                {
-                  spdlog::info( "Invalid Payload: {}", body.error() );
-                  // co_return co_await error( body.error() );
+                  logger->info( "Invalid Payload: {}", body.error() );
+                  co_return false;
                }
             };
             return subscribe( topic, std::move( deserializer ) );
@@ -114,16 +115,16 @@ namespace pace
          /// @brief Returns the fully qualified topic name
          /// @param topic Relative topic used internally
          /// @return Absolute topic used for MQTT operations
-         std::string qualifyTopic( const std::string& topic ) const;
+         [[nodiscard]] std::string qualifyTopic( const std::string& topic ) const;
 
          /// @brief Returns the configured node ID
-         const std::string& nodeId() const;
+         [[nodiscard]] const std::string& nodeId() const;
 
       private:
 
          /// @brief Paho MQTT Client callback function for incoming messages
          /// @param msg Incomming message with metadata
-         void onMessage( const mqtt::const_message_ptr msg );
+         void onMessage( mqtt::const_message_ptr msg );
 
          /// @brief Deserializes the payload of an MQTT message into the specified type, using nlohmann::json for deserialization
          /// @tparam Payload Type to deserialize the payload into; must be deserializable from JSON via nlohmann::json
@@ -149,12 +150,14 @@ namespace pace
             }
          }
 
+         mutable util::Logger logger = util::getLogger( "MQTT" );
+
          Config                     config;
          mqtt::async_client         client;
          std::string                baseTopic;
          util::AsyncTaskDispatcher& dispatcher;
 
-         std::map<std::string, MessageHandler> topicHandlers;
+         std::map<std::string, MessageHandler> topicHandlers{};
    };
 
 } // namespace pace

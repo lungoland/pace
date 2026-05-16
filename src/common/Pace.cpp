@@ -38,7 +38,7 @@ namespace pace
 
    util::Task<bool> Pace::start()
    {
-      scheduler.start( co_await util::current_executor() );
+      scheduler.start( co_await util::current_executor(), dispatcher );
       bool ret = co_await mqtt.connect();
       ret &= co_await entityFactory.subscribe();
       co_return ret;
@@ -63,20 +63,20 @@ namespace pace
 
       std::shared_ptr<entities::EntityInterface> sharedEntity = std::move( entity );
 
-      std::string entityName = sharedEntity->name();
-      auto        type       = sharedEntity->type();
-      spdlog::info( "Adding entity '{}' of type {}", entityName, static_cast<int>( type ) );
+      const auto& entityName = sharedEntity->name();
+      const auto& type       = sharedEntity->type();
+      logger->info( "Adding entity '{}' of type {}", entityName, static_cast<int>( type ) );
 
 
       if( ! co_await sharedEntity->subscribe() )
       {
-         spdlog::warn( "Failed to subscribe entity '{}'", entityName );
+         logger->warn( "Failed to subscribe entity '{}'", entityName );
          co_return false;
       }
 
       if( ! co_await publishDiscovery( mqtt, *sharedEntity ) )
       {
-         spdlog::warn( "Failed to publish discovery for entity '{}'", entityName );
+         logger->warn( "Failed to publish discovery for entity '{}'", entityName );
          co_return false;
       }
 
@@ -101,9 +101,9 @@ namespace pace
          co_return true;
       }
 
-      auto entity = *it;
-      auto type   = entity->type();
-      spdlog::info( "Removing entity '{}' of type {}", entityName, static_cast<int>( type ) );
+      auto        entity = *it;
+      const auto& type   = entity->type();
+      logger->info( "Removing entity '{}' of type {}", entityName, static_cast<int>( type ) );
 
       if( auto interval = entity->pollingInterval(); interval.has_value() )
       {
@@ -112,7 +112,7 @@ namespace pace
 
       if( ! co_await entity->unsubscribe() )
       {
-         spdlog::warn( "Failed to unsubscribe entity '{}'", entityName );
+         logger->warn( "Failed to unsubscribe entity '{}'", entityName );
          co_return false;
       }
 

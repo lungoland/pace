@@ -122,11 +122,7 @@ namespace pace::sensors::impl
          if( line.starts_with( "MemTotal:" ) )
          {
             totalKb = parseMeminfoValue( line );
-            {
-               continue;
-            }
          }
-
          if( line.starts_with( "MemAvailable:" ) )
          {
             availableKb = parseMeminfoValue( line );

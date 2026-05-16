@@ -18,7 +18,7 @@ namespace pace::sensors
    /// @brief Template base class for typed sensors. Provides a default implementation of fetch_ that converts the typed data to string.
    /// @tparam T The type of the sensor data. The type must have a std::to_string overload.
    /// @tparam TConfig The config type for this sensor. Must derive from EntityConfig.
-   template <typename TState, typename TConfig = entities::config::EntityConfig>
+   template <typename TDerived, typename TState, typename TConfig = entities::config::EntityConfig>
    class BaseSensor : public entities::EntityInterface
    {
          static_assert( std::is_base_of_v<entities::config::EntityConfig, TConfig>, "TConfig must derive from EntityConfig" );
@@ -32,14 +32,14 @@ namespace pace::sensors
 
          /// @brief Name of the entity. Used to construct MQTT topics.
          /// @return Entity name (e.g., "lock", "count", "ping_status")
-         std::string name() const override
+         [[nodiscard]] std::string name() const override
          {
             return config.name;
          }
 
          /// @brief Get entity type based on data type T
          /// Binary sensor if T is bool; regular sensor otherwise
-         entities::EntityType type() const override
+         [[nodiscard]] entities::EntityType type() const override
          {
             if constexpr( std::is_same_v<TState, bool> )
             {
@@ -51,7 +51,7 @@ namespace pace::sensors
             }
          }
 
-         std::optional<std::chrono::milliseconds> pollingInterval() const override
+         [[nodiscard]] std::optional<std::chrono::milliseconds> pollingInterval() const override
          {
             return config.interval;
          }
@@ -99,20 +99,21 @@ namespace pace::sensors
 
       protected:
 
-         TConfig config;
+         util::Logger logger = util::getLogger( std::string{ TDerived::kType } );
+         TConfig      config{};
 
       private:
 
          static constexpr int32_t MAX_DEBOUNCE = 5;
 
          /// @brief Cache the last published state to implement debounce logic
-         std::string lastData;
+         std::string lastData{};
          /// @brief Counter to track same-state repeats for state debounce
-         int32_t debounce = 0;
+         int32_t debounce{};
 
          /// @brief Cache the last published attributes to implement attribute debounce
-         std::string lastAttrs;
+         std::string lastAttrs{};
          /// @brief Counter to track same-attribute repeats for attribute debounce
-         int32_t attrsDebounce = 0;
+         int32_t attrsDebounce{};
    };
 } // namespace pace::sensors

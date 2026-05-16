@@ -27,10 +27,13 @@ namespace mqtt
          explicit token_awaiter( delivery_token_ptr tokenPtr )
             : token( std::move( tokenPtr ) )
          {}
+         token_awaiter( const token_awaiter& )            = delete;
+         token_awaiter& operator=( const token_awaiter& ) = delete;
+         token_awaiter( token_awaiter&& )                 = delete;
+         token_awaiter& operator=( token_awaiter&& )      = delete;
+         ~token_awaiter() noexcept override               = default;
 
-         ~token_awaiter() noexcept override = default;
-
-         bool await_ready() const noexcept
+         [[nodiscard]] bool await_ready() const noexcept
          {
             return ! token || token->is_complete();
          }

@@ -4,7 +4,7 @@
 #include <spdlog/spdlog.h>
 
 #include <cerrno>
-#include <signal.h>
+#include <csignal>
 #include <stdexcept>
 #include <stop_token>
 #include <string>
@@ -23,7 +23,7 @@ namespace pace
       const int maskResult = pthread_sigmask( SIG_BLOCK, &signalSet, nullptr );
       if( maskResult != 0 )
       {
-         throw std::runtime_error( "Failed to block shutdown signals: " + std::to_string( maskResult ) );
+         throw std::runtime_error( fmt::format( "Failed to block shutdown signals: {}", maskResult ) );
       }
 
       watcherThread = std::jthread{ [ this, signalSet ]( std::stop_token stopToken )

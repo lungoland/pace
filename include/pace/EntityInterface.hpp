@@ -2,7 +2,6 @@
 
 #include "util/Task.hpp"
 
-// #include <nlohmann/json_fwd.hpp>
 #include <nlohmann/json.hpp>
 
 #include <chrono>
@@ -129,7 +128,7 @@ namespace pace::entities
 
 
    /// @brief Enumeration of Home Assistant entity types
-   enum class EntityType
+   enum class EntityType : std::uint8_t
    {
       Button,       ///< Stateless trigger entity (e.g., lock, reboot)
       Text,         ///< Stateless trigger with payload (e.g. kill)
@@ -151,15 +150,19 @@ namespace pace::entities
       public:
 
          explicit EntityInterface( MqttService& mqttService );
-         virtual ~EntityInterface() = default;
+         EntityInterface( const EntityInterface& )            = delete;
+         EntityInterface& operator=( const EntityInterface& ) = delete;
+         EntityInterface( EntityInterface&& )                 = delete;
+         EntityInterface& operator=( EntityInterface&& )      = delete;
+         virtual ~EntityInterface()                           = default;
 
          /// @brief Name of the entity. Used to construct MQTT topics.
          /// @return Entity name (e.g., "lock", "count", "ping_status")
-         virtual std::string name() const = 0;
+         [[nodiscard]] virtual std::string name() const = 0;
 
          /// @brief Type of this entity.
          /// @return EntityType indicating whether this is a button, sensor, switch, etc.
-         virtual EntityType type() const = 0;
+         [[nodiscard]] virtual EntityType type() const = 0;
 
          /// @brief Subscribe to MQTT topics and set up handlers for this entity
          /// @return Task that completes when subscription is successful
@@ -171,7 +174,7 @@ namespace pace::entities
 
          /// @brief Optional polling interval for entities that need periodic execution.
          /// @return Interval when polling is supported, std::nullopt otherwise.
-         virtual std::optional<std::chrono::milliseconds> pollingInterval() const;
+         [[nodiscard]] virtual std::optional<std::chrono::milliseconds> pollingInterval() const;
 
          /// @brief Periodic work callback for polled entities.
          /// @return true when work succeeds.
@@ -179,7 +182,7 @@ namespace pace::entities
 
          /// @brief Publish MQTT Discovery payload for Home Assistant auto-discovery
          /// @return JSON payload in Home Assistant MQTT Discovery format, or std::nullopt if discovery not supported
-         virtual nlohmann::json getDiscoveryPayload() const;
+         [[nodiscard]] virtual nlohmann::json getDiscoveryPayload() const;
 
          /// @brief Optional JSON attributes for this entity, published alongside state.
          ///
@@ -188,21 +191,21 @@ namespace pace::entities
          /// it changes, independently of the main state debounce.
          ///
          /// @return JSON object with attribute key/value pairs, or std::nullopt if not supported.
-         virtual std::optional<nlohmann::json> getAttributes() const;
+         [[nodiscard]] virtual std::optional<nlohmann::json> getAttributes() const;
 
 
          /// @brief Get the base topic for commands targeting this entity
          /// Default: "command/{name}/set"
-         virtual std::string commandTopic() const;
+         [[nodiscard]] virtual std::string commandTopic() const;
 
          /// @brief Get the base topic for publishing state from this entity
          /// Default: "pace/{node}/sensor/{name}/state" for sensors
          /// Default: "pace/{node}/switch/{name}/state" for switches
-         virtual std::string stateTopic() const;
+         [[nodiscard]] virtual std::string stateTopic() const;
 
          /// @brief Topic for publishing JSON attributes.
          /// Default: "sensor/{name}/attributes"
-         virtual std::string attributesTopic() const;
+         [[nodiscard]] virtual std::string attributesTopic() const;
 
       protected:
 

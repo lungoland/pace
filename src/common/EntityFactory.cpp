@@ -3,10 +3,8 @@
 #include "pace/MqttService.hpp"
 #include "pace/Pace.hpp"
 
-#include "pace/commands/ExecCommand.hpp"
 #include "pace/commands/KillCommand.hpp"
 #include "pace/commands/NotifyCommand.hpp"
-#include "pace/commands/PingCommand.hpp"
 #include "pace/commands/StopCommand.hpp"
 #include "pace/commands/SystemActionCommand.hpp"
 
@@ -57,7 +55,6 @@ namespace
       }
       catch( const nlohmann::json::exception& e )
       {
-         spdlog::debug( "Failed to build entity config: {}", e.what() );
          return nullptr;
       }
    }
@@ -87,23 +84,23 @@ namespace
    template <typename... Ts>
    std::map<std::string, EntityCreator> makeCreatorMap()
    {
-      std::map<std::string, EntityCreator> m;
-      ( m.emplace( std::string{ Ts::kType }, makeCreator<Ts>() ), ... );
-      return m;
+      std::map<std::string, EntityCreator> ret;
+      ( ret.emplace( std::string{ Ts::kType }, makeCreator<Ts>() ), ... );
+      return ret;
    }
 
    /// Registry keyed by subtype.
-   const std::map<std::string, EntityCreator> entityCreators =
-      makeCreatorMap<pace::sensors::GameSensor, pace::switches::ProcessSwitch, pace::commands::PingCommand, pace::commands::NotifyCommand,
-                     pace::commands::StopCommand, pace::commands::LockCommand, pace::commands::SleepCommand, pace::commands::RebootCommand,
-                     pace::commands::ShutdownCommand>();
+   const std::map<std::string, EntityCreator> entityCreators = makeCreatorMap<
+      pace::sensors::GameSensor, pace::switches::ProcessSwitch, pace::commands::NotifyCommand, pace::commands::StopCommand,
+      pace::commands::LockCommand, pace::commands::SleepCommand, pace::commands::RebootCommand, pace::commands::ShutdownCommand>();
 }
 
 namespace pace
 {
-   EntityFactory::EntityFactory( Pace& p, MqttService& m )
-      : pace( p )
-      , mqtt( m )
+   EntityFactory::EntityFactory( Pace& paceService, MqttService& mqttService )
+      : pace( paceService )
+      , mqtt( mqttService )
+      , entityConfigs()
    {}
 
    util::Task<bool> EntityFactory::subscribe()
@@ -112,56 +109,51 @@ namespace pace
                                [ this ]( const std::string& topic, const std::string& data ) -> util::Task<bool>
                                {
                                   auto parts = mqtt::topic::split( topic );
+                                  // Is this even possible?
                                   if( parts.size() != 5 )
                                   {
-                                     spdlog::warn( "Invalid entity full config topic: {}", topic );
                                      co_return false;
                                   }
 
                                   const auto& entityName = parts[ 3 ];
-                                  co_return co_await onFullConfig( entityName, data );
+                                  auto        json       = nlohmann::json::parse( data, nullptr, false );
+                                  if( json.is_discarded() )
+                                  {
+                                     logger->warn( "Invalid JSON in full config for entity {}", entityName );
+                                     co_return false;
+                                  }
+                                  co_return co_await onFullConfig( entityName, std::move( json ) );
                                } );
 
       co_await mqtt.subscribe( "entity/+/config/+",
                                [ this ]( const std::string& topic, const std::string& data ) -> util::Task<bool>
                                {
                                   auto parts = mqtt::topic::split( topic );
-                                  if( parts.size() < 6 )
+                                  // is this even possible?
+                                  if( parts.size() != 6 )
                                   {
-                                     spdlog::warn( "Invalid entity partial config topic: {}", topic );
                                      co_return false;
                                   }
 
                                   const auto& entityName = parts[ 3 ];
                                   const auto& configNode = parts.back();
-                                  co_return co_await onPartialConfig( entityName, configNode, data );
+
+                                  auto& partialConfig         = entityConfigs[ entityName ];
+                                  partialConfig[ configNode ] = parseConfigValue( data );
+                                  if( ! partialConfig.contains( "type" ) )
+                                  {
+                                     co_return false;
+                                  }
+                                  co_return co_await onFullConfig( entityName, partialConfig );
                                } );
       co_return true;
-   }
-
-   util::Task<bool> EntityFactory::onFullConfig( const std::string& name, const std::string& data )
-   {
-      auto json = nlohmann::json::parse( data, nullptr, false );
-      if( json.is_discarded() )
-      {
-         spdlog::warn( "Invalid JSON in full config for entity {}", name );
-         co_return false;
-      }
-
-      if( ! json.is_object() )
-      {
-         spdlog::warn( "Full config for {} must be a JSON object", name );
-         co_return false;
-      }
-
-      co_return co_await onFullConfig( name, std::move( json ) );
    }
 
    util::Task<bool> EntityFactory::onFullConfig( const std::string& name, nlohmann::json config )
    {
       if( ! config.contains( "type" ) || ! config[ "type" ].is_string() )
       {
-         spdlog::warn( "Config for {} missing or invalid 'type' field", name );
+         logger->info( "Config for {} missing or invalid 'type' field", name );
          co_await pace.removeEntity( name );
          co_return false;
       }
@@ -169,7 +161,7 @@ namespace pace
       auto        it   = entityCreators.find( type );
       if( it == entityCreators.end() )
       {
-         spdlog::warn( "Unknown entity type: {}", type );
+         logger->warn( "Unknown entity type: {}", type );
          co_await pace.removeEntity( name );
          co_return false;
       }
@@ -183,19 +175,10 @@ namespace pace
       {
          co_return co_await pace.addEntity( std::move( entity ) );
       }
-      co_return false;
-   }
-
-   util::Task<bool> EntityFactory::onPartialConfig( const std::string& name, const std::string& node, const std::string& data )
-   {
-      auto& partialConfig   = entityConfigs[ name ];
-      partialConfig[ node ] = parseConfigValue( data );
-
-      if( ! partialConfig.contains( "type" ) )
+      else
       {
-         co_return true;
+         logger->info( "Config for {} of 'type' {} is invalid", name, type );
       }
-
-      co_return co_await onFullConfig( name, partialConfig );
+      co_return false;
    }
 } // namespace pace

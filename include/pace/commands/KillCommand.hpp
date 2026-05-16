@@ -7,18 +7,20 @@ namespace pace::commands
 {
    /// @brief Kills a process by name.
    /// TODO unfiy with proc sensor and move to switch
-   class KillCommand : public BaseCommand<NoResponse, std::string>
+   class KillCommand : public BaseCommand<KillCommand, NoResponse, std::string>
    {
       public:
 
+         static constexpr std::string_view kType = "kill";
+
          using BaseCommand::BaseCommand;
 
-         std::string name() const override
+         [[nodiscard]] std::string name() const override
          {
             return "kill";
          }
 
-         util::Task<ResponseType> execute( std::string proc ) const override
+         [[nodiscard]] util::Task<ResponseType> execute( std::string proc ) const override
          {
             auto result = co_await impl::killProcessByName( proc );
             if( ! result )

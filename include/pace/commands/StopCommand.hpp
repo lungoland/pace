@@ -5,7 +5,7 @@
 namespace pace::commands
 {
    /// @brief Simple command that stops the service.
-   class StopCommand : public BaseCommand<>
+   class StopCommand : public BaseCommand<StopCommand>
    {
       public:
 

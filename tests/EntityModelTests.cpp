@@ -37,11 +37,13 @@ namespace
          pace::entities::EntityType typeValue;
    };
 
-   class BoolSensor final : public pace::sensors::BaseSensor<bool>
+   class BoolSensor final : public pace::sensors::BaseSensor<BoolSensor, bool>
    {
       public:
 
-         using Base = pace::sensors::BaseSensor<bool>;
+         static constexpr std::string_view kType = "bool_sensor";
+
+         using Base = pace::sensors::BaseSensor<BoolSensor, bool>;
          using Base::Base;
 
          util::Task<bool> fetch() const override
@@ -50,11 +52,13 @@ namespace
          }
    };
 
-   class IntSensor final : public pace::sensors::BaseSensor<int>
+   class IntSensor final : public pace::sensors::BaseSensor<IntSensor, int>
    {
       public:
 
-         using Base = pace::sensors::BaseSensor<int>;
+         static constexpr std::string_view kType = "int_sensor";
+
+         using Base = pace::sensors::BaseSensor<IntSensor, int>;
          using Base::Base;
 
          util::Task<int> fetch() const override

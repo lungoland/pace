@@ -8,7 +8,7 @@
 
 namespace pace::commands
 {
-   enum class SystemAction
+   enum class SystemAction : std::uint8_t
    {
       Lock,
       Sleep,

@@ -51,7 +51,7 @@ namespace util
    {
          std::shared_ptr<Executor> result;
 
-         bool await_ready() const noexcept
+         [[nodiscard]] bool await_ready() const noexcept
          {
             return false;
          }

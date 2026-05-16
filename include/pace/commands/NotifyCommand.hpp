@@ -6,7 +6,7 @@
 namespace pace::commands
 {
    /// @brief Shows a toast notification.
-   class NotifyCommand : public BaseCommand<NoResponse, std::string>
+   class NotifyCommand : public BaseCommand<NotifyCommand, NoResponse, std::string>
    {
       public:
 
@@ -14,17 +14,17 @@ namespace pace::commands
 
          using BaseCommand::BaseCommand;
 
-         entities::EntityType type() const override
+         [[nodiscard]] entities::EntityType type() const override
          {
             return entities::EntityType::Notify;
          }
 
-         std::string name() const override
+         [[nodiscard]] std::string name() const override
          {
             return "notify";
          }
 
-         util::Task<ResponseType> execute( std::string message ) const override
+         [[nodiscard]] util::Task<ResponseType> execute( std::string message ) const override
          {
             impl::sendNotification( message );
             co_return {};

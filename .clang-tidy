@@ -1,0 +1,24 @@
+---
+Checks: >
+  bugprone-*,
+  modernize-*,
+  performance-*,
+  readability-*,
+  cppcoreguidelines-*,
+  -modernize-use-trailing-return-type,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -readability-magic-numbers,
+  -cppcoreguidelines-pro-type-vararg,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay
+
+WarningsAsErrors: ""
+
+HeaderFilterRegex: "^/workspaces/pace/(include|src)/.*"
+
+CheckOptions:
+  - key: readability-identifier-length.MinimumVariableNameLength
+    value: "2"
+  - key: readability-identifier-length.MinimumParameterNameLength
+    value: "2"
+  - key: modernize-use-default-member-init.UseAssignment
+    value: "true"

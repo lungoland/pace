@@ -19,7 +19,7 @@ int main()
    {
       const auto cfg = pace::Config::fromEnvironment();
       spdlog::cfg::load_env_levels();
-      spdlog::set_pattern( "[%H:%M:%S.%e][%t][%^%=5!l%$] %v" );
+      spdlog::set_pattern( "[%H:%M:%S.%f][%t][%^%=5!l%$][%n] %v" );
 
       util::AsyncTaskDispatcher dispatcher;
       pace::Pace                pace{ cfg, dispatcher };
@@ -30,8 +30,9 @@ int main()
                                                       util::sync_wait( pace.stop() );
                                                    } };
 
-      dispatcher.post( std::bind( &pace::Pace::start, &pace ) );
+      dispatcher.post( "Pace::start", std::bind( &pace::Pace::start, &pace ) );
       util::sync_wait( dispatcher.run() );
+      spdlog::info( "Pace stopped, exiting" );
       return 0;
    }
    catch( const std::exception& ex )

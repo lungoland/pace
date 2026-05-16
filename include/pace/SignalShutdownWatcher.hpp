@@ -22,7 +22,7 @@ namespace pace
       private:
 
          SignalHandler onSignalCallback;
-         std::jthread  watcherThread{};
+         std::jthread  watcherThread;
    };
 
 } // namespace pace

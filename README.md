@@ -117,6 +117,34 @@ cmake --install build/pace-windows-static --prefix dist/pace-windows-static
 
 The install tree is written to `dist/pace-windows-static/`. For Windows cross-builds, the install step stages `pace.exe` together with the required vcpkg and MinGW runtime DLLs.
 
+## Static analysis
+
+clang-tidy runs automatically during the build when `PACE_ENABLE_CLANG_TIDY=ON` is passed. The checks are configured in [.clang-tidy](.clang-tidy) at the project root.
+
+### Install clang-tidy (Ubuntu/Debian)
+
+```bash
+sudo apt-get install -y clang-tidy
+```
+
+### Run clang-tidy
+
+Pass the option at configure time and build normally:
+
+```bash
+cmake --preset pace-linux-debug -DPACE_ENABLE_CLANG_TIDY=ON
+cmake --build --preset pace-linux-debug
+```
+
+Every translation unit in `pace_core` and `pace` is analysed as part of the build. Findings are reported alongside the regular compiler output. Fix all warnings before treating them as errors by adding `-DPACE_ENABLE_WARNINGS_AS_ERRORS=ON` (already the default).
+
+To run clang-tidy standalone against the generated `compile_commands.json` without rebuilding:
+
+```bash
+# After a normal configure step
+run-clang-tidy -p build/pace-linux-debug
+```
+
 ## Runtime configuration
 
 Configuration can be provided either via process environment variables or a local `.env` file in the project working directory. If both are present, process environment variables win.

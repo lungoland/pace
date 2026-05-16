@@ -12,6 +12,9 @@
   "containerEnv": {
     "VCPKG_ROOT": "/opt/vcpkg"
   },
+  "remoteEnv": {
+    "DEBUGINFOD_URLS": ""
+  },
   "mounts": [
     "source=pace-vcpkg,target=/opt/vcpkg,type=volume"
   ],
@@ -33,5 +36,5 @@
       }
     }
   },
-  "postCreateCommand": "bash -lc 'sudo mkdir -p /opt/vcpkg && sudo chown -R vscode:vscode /opt/vcpkg && if [ ! -x /opt/vcpkg/vcpkg ]; then if [ -d /opt/vcpkg/.git ]; then git -C /opt/vcpkg pull --ff-only; else git clone https://github.com/microsoft/vcpkg /opt/vcpkg; fi && /opt/vcpkg/bootstrap-vcpkg.sh -disableMetrics; fi && cmake --preset pace --fresh'"
+  "postCreateCommand": "bash -lc 'sudo truncate -s 0 /etc/debuginfod/elfutils.urls && chmod +x /workspaces/pace/.vscode/gdb-wrapper.sh && sudo mkdir -p /opt/vcpkg && sudo chown -R vscode:vscode /opt/vcpkg && if [ ! -x /opt/vcpkg/vcpkg ]; then if [ -d /opt/vcpkg/.git ]; then git -C /opt/vcpkg pull --ff-only; else git clone https://github.com/microsoft/vcpkg /opt/vcpkg; fi && /opt/vcpkg/bootstrap-vcpkg.sh -disableMetrics; fi && cmake --preset pace-linux-debug --fresh'"
 }

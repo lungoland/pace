@@ -8,43 +8,42 @@
 
 #include <cerrno>
 #include <chrono>
+#include <csignal>
 #include <cstring>
-#include <signal.h>
 #include <spawn.h>
 #include <string>
 #include <string_view>
 #include <sys/wait.h>
 #include <vector>
 
-extern char** environ;
-
 namespace pace::commands::impl
 {
    namespace
    {
-      std::vector<char*> buildArgv( std::vector<std::string>& command )
+      std::vector<char*> buildArgv( const std::vector<std::string>& command )
       {
          std::vector<char*> argv;
          argv.reserve( command.size() + 1 );
          for( auto& part : command )
          {
-            argv.push_back( part.data() );
+            argv.push_back( const_cast<char*>( part.data() ) );
          }
          argv.push_back( nullptr );
          return argv;
       }
 
-      util::expected<pid_t, std::string> spawnProcess( std::vector<std::string>& command, std::string_view actionName )
+      util::expected<pid_t, std::string> spawnProcess( const std::vector<std::string>& command, const std::string_view& actionName )
       {
          if( command.empty() )
          {
             return util::unexpected{ "empty command" };
          }
 
+         // TODO: Why cant this be const?
          auto argv = buildArgv( command );
 
          pid_t     processId = 0;
-         const int spawnRc   = posix_spawnp( &processId, argv.front(), nullptr, nullptr, argv.data(), environ );
+         const int spawnRc   = posix_spawnp( &processId, argv.front(), nullptr, nullptr, argv.data(), nullptr );
          if( spawnRc != 0 )
          {
             return util::unexpected{ fmt::format( "posix_spawnp failed for {}: {}", actionName, std::strerror( spawnRc ) ) };
@@ -53,7 +52,7 @@ namespace pace::commands::impl
          return processId;
       }
 
-      util::expected<bool, std::string> spawnAndWait( std::vector<std::string> command, std::string_view actionName )
+      util::expected<bool, std::string> spawnAndWait( const std::vector<std::string>& command, const std::string_view& actionName )
       {
          auto spawned = spawnProcess( command, actionName );
          if( ! spawned )

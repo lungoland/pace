@@ -20,7 +20,7 @@ namespace pace::commands
    using NoResponse = entities::NoResponse;
    using NoArgs     = entities::NoArgs;
 
-   template <typename TResponse = NoResponse, typename TRequest = NoArgs>
+   template <typename TDerived, typename TResponse = NoResponse, typename TRequest = NoArgs>
    class BaseCommand : public entities::EntityInterface
    {
       public:
@@ -31,7 +31,7 @@ namespace pace::commands
 
          /// @brief Type of this entity. For Command this usually is a button
          /// or text depending on whether the command takes arguments.
-         virtual entities::EntityType type() const
+         [[nodiscard]] entities::EntityType type() const
          {
             if constexpr( std::is_same_v<TRequest, std::string> )
             {
@@ -55,7 +55,7 @@ namespace pace::commands
 
                                       if( ! response )
                                       {
-                                         spdlog::error( "Command {} execution failed: {}", name(), response.error() );
+                                         logger->error( "Command {} execution failed: {}", name(), response.error() );
                                          co_return false;
                                       }
 
@@ -75,5 +75,9 @@ namespace pace::commands
          /// @param request The command argument, if any. For commands without arguments, this will be NoArgs.
          /// @return The result of the command execution. For commands without a response, this will be NoResponse.
          virtual util::Task<ResponseType> execute( TRequest request ) const = 0;
+
+      protected:
+
+         util::Logger logger = util::getLogger( std::string( TDerived::kType ) );
    };
 } // namespace pace::commands

@@ -5,6 +5,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "util/Logger.hpp"
 #include "util/Task.hpp"
 
 namespace pace
@@ -16,7 +17,7 @@ namespace pace
    {
       public:
 
-         explicit EntityFactory( Pace& p, MqttService& m );
+         explicit EntityFactory( Pace& pace, MqttService& mqtt );
 
          /// @brief Subscribes to entity config topics and creates/updates entities.
          /// Topic formats:
@@ -26,14 +27,14 @@ namespace pace
 
       private:
 
-         util::Task<bool> onFullConfig( const std::string& name, const std::string& data );
          util::Task<bool> onFullConfig( const std::string& name, nlohmann::json config );
-         util::Task<bool> onPartialConfig( const std::string& name, const std::string& node, const std::string& data );
+
+         util::Logger logger = util::getLogger( "EntityFactory" );
 
          Pace&        pace;
          MqttService& mqtt;
 
          /// @brief In-memory storage of partially built or complete entity configs by entity name.
-         std::map<std::string, nlohmann::json> entityConfigs;
+         std::map<std::string, nlohmann::json> entityConfigs{};
    };
 }

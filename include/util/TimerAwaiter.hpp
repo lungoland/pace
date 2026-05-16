@@ -28,7 +28,7 @@ namespace util
             , externalStopToken( stopToken )
          {}
 
-         bool await_ready() const noexcept
+         [[nodiscard]] bool await_ready() const noexcept
          {
             return delayDuration <= std::chrono::milliseconds{ 0 } || externalStopToken.stop_requested();
          }
@@ -107,7 +107,10 @@ namespace util
                TimerScheduler()
                   : worker( [ this ]( std::stop_token stopToken ) { run( stopToken ); } )
                {}
-
+               TimerScheduler( const TimerScheduler& )            = delete;
+               TimerScheduler& operator=( const TimerScheduler& ) = delete;
+               TimerScheduler( TimerScheduler&& )                 = delete;
+               TimerScheduler& operator=( TimerScheduler&& )      = delete;
                ~TimerScheduler()
                {
                   {
@@ -219,7 +222,7 @@ namespace util
 
                std::mutex                                                                                  mutex;
                std::condition_variable                                                                     cv;
-               std::priority_queue<ScheduledRequest, std::vector<ScheduledRequest>, ScheduledRequestLater> queue;
+               std::priority_queue<ScheduledRequest, std::vector<ScheduledRequest>, ScheduledRequestLater> queue{};
                std::jthread                                                                                worker;
                std::uint64_t                                                                               nextId{ 0 };
                bool                                                                                        shuttingDown{ false };

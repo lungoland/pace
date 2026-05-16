@@ -1,6 +1,7 @@
 #pragma once
 
 #include "util/Executor.hpp"
+#include "util/Logger.hpp"
 
 #include <spdlog/spdlog.h>
 
@@ -19,6 +20,9 @@
 
 namespace util
 {
+   const auto           taskLogger    = util::getLogger( "Task" );
+   static std::uint16_t taskIdCounter = 0;
+
    template <typename T>
    class Task
    {
@@ -38,6 +42,7 @@ namespace util
                void await_suspend( task_handle h ) noexcept
                {
                   auto& p = h.promise();
+                  taskLogger->trace( "'{}' completed, finished continuation", p.name );
                   {
                      std::lock_guard lock{ p.mutex };
                      p.done = true;
@@ -70,39 +75,26 @@ namespace util
                }
                auto initial_suspend() noexcept
                {
+                  taskLogger->trace( "'{}' initial_suspend", name );
                   /// Should suspend immediatly to allow the caller to set the executor before the task starts running
                   /// caller will invoke await_suspend and pass the executor to the promise before resuming the task
                   return std::suspend_always{};
                }
                auto final_suspend() noexcept
                {
+                  taskLogger->trace( "'{}' final_suspend", name );
                   return final_awaiter{};
                }
 
-               // void return_void()
-               // {}
                void return_value( T value )
                {
                   result = std::move( value );
                }
                void unhandled_exception()
                {
-                  error = std::current_exception();
-                  try
+                  if( error )
                   {
-                     if( error )
-                     {
-                        std::rethrow_exception( error );
-                     }
-                     spdlog::error( "task unhandled exception: unknown" );
-                  }
-                  catch( const std::exception& ex )
-                  {
-                     spdlog::error( "task unhandled exception: {}", ex.what() );
-                  }
-                  catch( ... )
-                  {
-                     spdlog::error( "task unhandled exception: unknown non-std exception" );
+                     std::rethrow_exception( error );
                   }
                }
 
@@ -115,6 +107,8 @@ namespace util
                {
                   executor = std::move( newExecutor );
                }
+
+               std::string name{ fmt::format( "Task@{}", ++taskIdCounter ) };
 
                std::shared_ptr<Executor> executor{};
                std::coroutine_handle<>   continuation{};
@@ -162,6 +156,7 @@ namespace util
          }
          T await_resume()
          {
+            taskLogger->trace( "'{}' await_resume", handle.promise().name );
             if( handle && handle.promise().error )
             {
                std::rethrow_exception( handle.promise().error );
@@ -171,6 +166,7 @@ namespace util
          template </*Concept*/ typename Promise>
          std::coroutine_handle<> await_suspend( std::coroutine_handle<Promise> h ) noexcept
          {
+            taskLogger->trace( "'{}' await_suspend", h.promise().name );
             /// h is the handle of the caller aka the continunation
             /// handle is the handle of the callee aka the task being co_awaited
             if( ! handle )
@@ -188,6 +184,50 @@ namespace util
             }
 
             return handle;
+         }
+
+         /// @brief Awaitable returned by await_passively(). Suspends the caller without a
+         /// symmetric transfer, so the awaited task's coroutine handle is resumed only by
+         /// whatever mechanism already has it queued (e.g. an executor post from a callback).
+         /// Use instead of plain `co_await task` when the task's handle may already have been
+         /// posted to the executor before the co_await is reached, which would otherwise cause
+         /// a double-resume of the same handle (UB / crash).
+         struct passive_awaiter
+         {
+               task_handle handle;
+
+               [[nodiscard]] bool await_ready() const noexcept
+               {
+                  return ! handle || handle.done();
+               }
+
+               template <typename Promise>
+               bool await_suspend( std::coroutine_handle<Promise> h ) noexcept
+               {
+                  if( ! handle )
+                  {
+                     return false;
+                  }
+                  auto& p        = handle.promise();
+                  p.continuation = h;
+                  p.started      = true;
+                  if constexpr( requires( Promise& pp ) { pp.get_executor(); } )
+                  {
+                     p.set_executor( h.promise().get_executor() );
+                  }
+                  // If the task finished between await_ready() and here, don't suspend.
+                  return ! p.done;
+               }
+
+               void await_resume() noexcept
+               {}
+         };
+
+         /// @brief Returns an awaitable that waits for this task without symmetric transfer.
+         /// @see passive_awaiter
+         [[nodiscard]] passive_awaiter await_passively() noexcept
+         {
+            return passive_awaiter{ handle };
          }
 
          task_handle handle;
