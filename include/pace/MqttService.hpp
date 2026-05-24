@@ -144,7 +144,7 @@ namespace pace
                const auto payload = json.get<Payload>();
                return payload;
             }
-            catch( const std::exception& ex )
+            catch( const nlohmann::json::exception& ex )
             {
                return util::unexpected{ fmt::format( "Failed to deserialize message payload: {}", ex.what() ) };
             }

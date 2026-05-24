@@ -183,7 +183,8 @@ namespace util
             }
             catch( const std::exception& ex )
             {
-               logger->error( "Encountered an exception: {}", ex.what() );
+               logger->critical( "runtime error: {}", ex.what() );
+               throw;
             }
             co_return true;
          }

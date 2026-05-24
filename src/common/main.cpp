@@ -2,6 +2,7 @@
 #include "pace/Pace.hpp"
 #include "pace/SignalShutdownWatcher.hpp"
 #include "util/AsyncTaskDispatcher.hpp"
+#include "util/Logger.hpp"
 #include "util/Task.hpp"
 
 #include <exception>
@@ -15,6 +16,7 @@
 
 int main()
 {
+   auto logger = util::getLogger( "Pace" );
    try
    {
       const auto cfg = pace::Config::fromEnvironment();
@@ -24,20 +26,19 @@ int main()
       util::AsyncTaskDispatcher dispatcher;
       pace::Pace                pace{ cfg, dispatcher };
 
-      pace::SignalShutdownWatcher shutdownWatcher{ [ &pace ]( int signalNumber )
+      pace::SignalShutdownWatcher shutdownWatcher{ [ &pace, &logger ]( int signalNumber )
                                                    {
-                                                      spdlog::info( "Received signal {}", signalNumber );
+                                                      logger->info( "Received signal {}", signalNumber );
                                                       util::sync_wait( pace.stop() );
                                                    } };
 
       dispatcher.post( "Pace::start", std::bind( &pace::Pace::start, &pace ) );
       util::sync_wait( dispatcher.run() );
-      spdlog::info( "Pace stopped, exiting" );
       return 0;
    }
    catch( const std::exception& ex )
    {
-      spdlog::error( "runtime error: {}", ex.what() );
+      logger->critical( "runtime error: {}", ex.what() );
       return 1;
    }
 }

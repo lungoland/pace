@@ -38,16 +38,25 @@ namespace pace
 
    util::Task<bool> Pace::start()
    {
-      scheduler.start( co_await util::current_executor(), dispatcher );
-      bool ret = co_await mqtt.connect();
-      ret &= co_await entityFactory.subscribe();
-      co_return ret;
+      try
+      {
+         scheduler.start( co_await util::current_executor(), dispatcher );
+         co_await mqtt.connect();
+         co_await entityFactory.subscribe();
+         co_return true;
+      }
+      catch( const std::exception& ex )
+      {
+         logger->error( "Failed to start: {}", ex.what() );
+         dispatcher.post( "Pace::stop", std::bind( &pace::Pace::stop, this ) );
+         co_return false;
+      }
    }
 
    util::Task<bool> Pace::stop()
    {
-      co_await scheduler.stopAsync();
       co_await mqtt.disconnect();
+      co_await scheduler.stopAsync();
 
       // does not really fit here .. we do not start the dispatcher
       dispatcher.stop();

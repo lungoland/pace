@@ -92,9 +92,9 @@ namespace util
                }
                void unhandled_exception()
                {
-                  if( error )
+                  if( ! error )
                   {
-                     std::rethrow_exception( error );
+                     error = std::current_exception();
                   }
                }
 

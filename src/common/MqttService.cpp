@@ -53,12 +53,12 @@ namespace pace
 
    util::Task<bool> MqttService::disconnect()
    {
-      logger->info( "Disconnecting from MQTT broker '{}'", config.brokerUri );
       if( ! client.is_connected() )
       {
          co_return true;
       }
 
+      logger->info( "Disconnecting from MQTT broker '{}'", config.brokerUri );
       co_await publish( "availability", std::string{ "offline" }, true );
       co_await client.disconnect();
       co_return true;

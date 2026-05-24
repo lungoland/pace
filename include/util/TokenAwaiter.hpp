@@ -94,8 +94,7 @@ namespace mqtt
                   detail = "unknown";
                }
 
-               spdlog::error( "mqtt async action failed with error code {}: {}", rc, detail );
-               throw std::runtime_error( "mqtt async action failed (rc=" + std::to_string( rc ) + "): " + detail );
+               throw std::runtime_error( detail );
             }
          }
 
