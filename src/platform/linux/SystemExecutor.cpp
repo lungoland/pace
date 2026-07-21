@@ -9,11 +9,13 @@
 #include <cerrno>
 #include <chrono>
 #include <csignal>
+#include <cstdint>
 #include <cstring>
 #include <spawn.h>
 #include <string>
 #include <string_view>
 #include <sys/wait.h>
+#include <unistd.h>
 #include <vector>
 
 namespace pace::commands::impl
@@ -32,27 +34,29 @@ namespace pace::commands::impl
          return argv;
       }
 
-      util::expected<pid_t, std::string> spawnProcess( const std::vector<std::string>& command, const std::string_view& actionName )
+      util::Result<pid_t> spawnProcess( const std::vector<std::string>& command, const std::string_view& actionName,
+                                        posix_spawnattr_t* attr = nullptr )
       {
          if( command.empty() )
          {
-            return util::unexpected{ "empty command" };
+            return util::unexpected{ util::makeError( util::ErrorCode::InvalidArgument, "empty command" ) };
          }
 
          // TODO: Why cant this be const?
          auto argv = buildArgv( command );
 
          pid_t     processId = 0;
-         const int spawnRc   = posix_spawnp( &processId, argv.front(), nullptr, nullptr, argv.data(), nullptr );
+         const int spawnRc   = posix_spawnp( &processId, argv.front(), nullptr, attr, argv.data(), environ );
          if( spawnRc != 0 )
          {
-            return util::unexpected{ fmt::format( "posix_spawnp failed for {}: {}", actionName, std::strerror( spawnRc ) ) };
+            return util::unexpected{ util::makeError( util::ErrorCode::PlatformFailure, "posix_spawnp failed for {}: {}", actionName,
+                                                      std::strerror( spawnRc ) ) };
          }
 
          return processId;
       }
 
-      util::expected<bool, std::string> spawnAndWait( const std::vector<std::string>& command, const std::string_view& actionName )
+      util::VoidResult spawnAndWait( const std::vector<std::string>& command, const std::string_view& actionName )
       {
          auto spawned = spawnProcess( command, actionName );
          if( ! spawned )
@@ -65,25 +69,28 @@ namespace pace::commands::impl
          int status = 0;
          if( waitpid( processId, &status, 0 ) < 0 )
          {
-            return util::unexpected{ fmt::format( "waitpid failed for {}: {}", actionName, std::strerror( errno ) ) };
+            return util::unexpected{ util::makeError( util::ErrorCode::PlatformFailure, "waitpid failed for {}: {}", actionName,
+                                                      std::strerror( errno ) ) };
          }
 
          if( WIFEXITED( status ) && WEXITSTATUS( status ) == 0 )
          {
-            return true;
+            return {};
          }
 
          if( WIFEXITED( status ) )
          {
-            return util::unexpected{ fmt::format( "{} exited with status {}", actionName, WEXITSTATUS( status ) ) };
+            return util::unexpected{ util::makeError( util::ErrorCode::CommandFailure, "{} exited with status {}", actionName,
+                                                      WEXITSTATUS( status ) ) };
          }
 
          if( WIFSIGNALED( status ) )
          {
-            return util::unexpected{ fmt::format( "{} terminated by signal {}", actionName, WTERMSIG( status ) ) };
+            return util::unexpected{ util::makeError( util::ErrorCode::CommandFailure, "{} terminated by signal {}", actionName,
+                                                      WTERMSIG( status ) ) };
          }
 
-         return util::unexpected{ fmt::format( "{} failed with unknown process status", actionName ) };
+         return util::unexpected{ util::makeError( util::ErrorCode::CommandFailure, "{} failed with unknown process status", actionName ) };
       }
 
       template <typename TPid>
@@ -152,7 +159,7 @@ namespace pace::commands::impl
 
    } // namespace
 
-   util::expected<bool, std::string> executeSystemAction( SystemAction action )
+   util::VoidResult executeSystemAction( SystemAction action )
    {
       switch( action )
       {
@@ -162,10 +169,10 @@ namespace pace::commands::impl
          case SystemAction::Shutdown : return spawnAndWait( { "systemctl", "poweroff" }, actionName( action ) );
       }
 
-      return util::unexpected{ "unsupported action" };
+      return util::unexpected{ util::makeError( util::ErrorCode::Unsupported, "unsupported action" ) };
    }
 
-   util::expected<bool, std::string> spawnNewProcess( const std::string& imagePath )
+   util::VoidResult spawnNewProcess( const std::string& imagePath )
    {
       auto command = std::vector<std::string>{ imagePath };
 
@@ -177,48 +184,137 @@ namespace pace::commands::impl
          return util::unexpected{ spawned.error() };
       }
 
-      return true; // or pid?
+      return {};
    }
 
-   util::Task<util::expected<bool, std::string>> killProcessByName( const std::string& processName )
+   util::Result<std::int64_t> spawnNewProcessGroup( const std::string& imagePath )
+   {
+      auto              command = std::vector<std::string>{ imagePath };
+      posix_spawnattr_t attr{};
+
+      if( const int initRc = posix_spawnattr_init( &attr ); initRc != 0 )
+      {
+         return util::unexpected{ util::makeError( util::ErrorCode::PlatformFailure, "posix_spawnattr_init failed: {}",
+                                                   std::strerror( initRc ) ) };
+      }
+
+      auto finalizeAttr = [ &attr ]() { posix_spawnattr_destroy( &attr ); };
+
+      if( const int setFlagsRc = posix_spawnattr_setflags( &attr, POSIX_SPAWN_SETPGROUP ); setFlagsRc != 0 )
+      {
+         finalizeAttr();
+         return util::unexpected{ util::makeError( util::ErrorCode::PlatformFailure, "posix_spawnattr_setflags failed: {}",
+                                                   std::strerror( setFlagsRc ) ) };
+      }
+
+      // pgroup=0 means create a new group with PGID == child PID.
+      if( const int setPgroupRc = posix_spawnattr_setpgroup( &attr, 0 ); setPgroupRc != 0 )
+      {
+         finalizeAttr();
+         return util::unexpected{ util::makeError( util::ErrorCode::PlatformFailure, "posix_spawnattr_setpgroup failed: {}",
+                                                   std::strerror( setPgroupRc ) ) };
+      }
+
+      auto spawned = spawnProcess( command, imagePath, &attr );
+      finalizeAttr();
+
+      if( ! spawned )
+      {
+         return util::unexpected{ spawned.error() };
+      }
+
+      return static_cast<std::int64_t>( *spawned );
+   }
+
+   util::Task<util::VoidResult> killProcessByName( const std::string& processName )
    {
       auto pids = sensors::impl::findPidsByName( processName );
       if( pids.empty() )
       {
-         co_return util::unexpected{ fmt::format( "no process found with name '{}'", processName ) };
+         co_return util::unexpected{ util::makeError( util::ErrorCode::NotFound, "no process found with name '{}'", processName ) };
       }
 
       auto signalErrors = sendSignal( pids, SIGTERM );
 
       if( ! signalErrors.empty() )
       {
-         co_return util::unexpected{ fmt::format( "failed to send SIGTERM: {}", fmt::join( signalErrors, "; " ) ) };
+         co_return util::unexpected{ util::makeError( util::ErrorCode::PlatformFailure, "failed to send SIGTERM: {}",
+                                                      fmt::join( signalErrors, "; " ) ) };
       }
 
       auto remaining = co_await waitForExit( pids, std::chrono::seconds{ 2 } );
       if( remaining.empty() )
       {
-         co_return true;
+         co_return {};
       }
 
       signalErrors = sendSignal( remaining, SIGKILL );
 
       if( ! signalErrors.empty() )
       {
-         co_return util::unexpected{ fmt::format( "failed to send SIGKILL: {}", fmt::join( signalErrors, "; " ) ) };
+         co_return util::unexpected{ util::makeError( util::ErrorCode::PlatformFailure, "failed to send SIGKILL: {}",
+                                                      fmt::join( signalErrors, "; " ) ) };
       }
 
       remaining = co_await waitForExit( pids, std::chrono::seconds{ 1 } );
       if( ! remaining.empty() )
       {
-         co_return util::unexpected{ fmt::format( "process '{}' still running after SIGKILL (pids: {})", processName,
-                                                  fmt::join( remaining, ", " ) ) };
+         co_return util::unexpected{ util::makeError( util::ErrorCode::PlatformFailure,
+                                                      "process '{}' still running after SIGKILL (pids: {})", processName,
+                                                      fmt::join( remaining, ", " ) ) };
       }
 
-      co_return true;
+      co_return {};
    }
 
-   util::expected<bool, std::string> sendNotification( const std::string& message )
+   util::Task<util::VoidResult> killProcessGroup( const std::int64_t processGroupId )
+   {
+      if( processGroupId <= 0 )
+      {
+         co_return util::unexpected{ util::makeError( util::ErrorCode::InvalidArgument, "invalid process group id '{}'", processGroupId ) };
+      }
+
+      auto pids = sensors::impl::findPidsByProcessGroup( processGroupId );
+      if( pids.empty() )
+      {
+         co_return util::unexpected{ util::makeError( util::ErrorCode::NotFound, "no processes found in process group '{}'",
+                                                      processGroupId ) };
+      }
+
+      auto signalErrors = sendSignal( pids, SIGTERM );
+
+      if( ! signalErrors.empty() )
+      {
+         co_return util::unexpected{ util::makeError( util::ErrorCode::PlatformFailure, "failed to send SIGTERM to process group '{}': {}",
+                                                      processGroupId, fmt::join( signalErrors, "; " ) ) };
+      }
+
+      auto remaining = co_await waitForExit( pids, std::chrono::seconds{ 2 } );
+      if( remaining.empty() )
+      {
+         co_return {};
+      }
+
+      signalErrors = sendSignal( remaining, SIGKILL );
+
+      if( ! signalErrors.empty() )
+      {
+         co_return util::unexpected{ util::makeError( util::ErrorCode::PlatformFailure, "failed to send SIGKILL to process group '{}': {}",
+                                                      processGroupId, fmt::join( signalErrors, "; " ) ) };
+      }
+
+      remaining = co_await waitForExit( pids, std::chrono::seconds{ 1 } );
+      if( ! remaining.empty() )
+      {
+         co_return util::unexpected{ util::makeError( util::ErrorCode::PlatformFailure,
+                                                      "process group '{}' still running after SIGKILL (pids: {})", processGroupId,
+                                                      fmt::join( remaining, ", " ) ) };
+      }
+
+      co_return {};
+   }
+
+   util::VoidResult sendNotification( const std::string& message )
    {
       return spawnAndWait( { "notify-send", "-a", "Pace", message }, "send notification" );
    }

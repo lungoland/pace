@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pace/Config.hpp"
+#include "util/Error.hpp"
 #include "util/Logger.hpp"
 #include "util/Task.hpp"
 #include "util/expected.hpp"
@@ -16,9 +17,11 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace util
 {
@@ -27,12 +30,15 @@ namespace util
 
 namespace pace
 {
+   struct MqttServiceProbe;
+
    /// @brief By now its a wrapper around paho ... so consider renaming?
    class MqttService
    {
       public:
 
-         using MessageHandler = std::function<util::Task<bool>( mqtt::const_message_ptr )>;
+         using OperationResult = util::VoidResult;
+         using MessageHandler  = std::function<util::Task<OperationResult>( mqtt::const_message_ptr )>;
 
          /// @brief Ctor of the MQTT service
          /// @param cfg Process configuration containing MQTT connection details
@@ -41,10 +47,10 @@ namespace pace
 
          /// @brief Connects to the MQTT broker and subscribes to all topics in the topicHandlers map
          /// @return Awaitable task that completes when the connection and subscriptions are established
-         util::Task<bool> connect();
+         util::Task<OperationResult> connect();
          /// @brief Disconnects from the MQTT broker
          /// @return Awaitable task that completes when the disconnection is complete
-         util::Task<bool> disconnect();
+         util::Task<OperationResult> disconnect();
 
          /// @brief Subscribes to a topic with a handler taking a deserialized payload
          /// @tparam Handler Function type of the handler, must be invocable with ( const std::string& topic, const Payload& payload )
@@ -53,7 +59,7 @@ namespace pace
          /// @return
          template <typename Handler>
             requires( ! std::is_invocable_v<Handler, mqtt::const_message_ptr> )
-         util::Task<bool> subscribe( const std::string& topic, Handler&& handler )
+         util::Task<OperationResult> subscribe( const std::string& topic, Handler&& handler )
          {
             return subscribe( topic, std::function( std::forward<Handler>( handler ) ) );
          }
@@ -64,20 +70,24 @@ namespace pace
          /// @param handler Handler to process the deserialized payload
          /// @return
          template <typename Payload>
-         util::Task<bool> subscribe( const std::string&                                                          topic,
-                                     std::function<util::Task<bool>( const std::string& topic, const Payload& )> handler )
+         util::Task<OperationResult>
+            subscribe( const std::string&                                                                     topic,
+                       std::function<util::Task<OperationResult>( const std::string& topic, const Payload& )> handler )
          {
-            auto deserializer = [ handler = std::move( handler ), logger = logger ]( mqtt::const_message_ptr msg ) -> util::Task<bool>
+            auto deserializer = [ handler = std::move( handler ),
+                                  logger  = logger ]( mqtt::const_message_ptr msg ) -> util::Task<OperationResult>
             {
                if( auto body = deserializePayload<Payload>( msg ); body )
                {
-                  co_await handler( msg->get_topic(), *body );
-                  co_return true;
+                  co_return co_await handler( msg->get_topic(), *body );
                }
                else
                {
-                  logger->info( "Invalid Payload: {}", body.error() );
-                  co_return false;
+                  const auto error = fmt::format( "Invalid payload on '{}': {}", msg->get_topic(), body.error() );
+                  logger->info( "{}", error );
+                  co_return util::unexpected{
+                     util::Error{ util::ErrorCode::InvalidPayload, std::move( error ) }
+                  };
                }
             };
             return subscribe( topic, std::move( deserializer ) );
@@ -87,11 +97,11 @@ namespace pace
          /// @param topic Topic to subscribe to
          /// @param handler Handler to process the raw MQTT message
          /// @return
-         util::Task<bool> subscribe( std::string topic, MessageHandler handler );
+         util::Task<OperationResult> subscribe( std::string topic, MessageHandler handler );
          /// @brief Unsubscribes from a topic
          /// @param topic Topic to unsubscribe from
          /// @return
-         util::Task<bool> unsubscribe( std::string topic );
+         util::Task<OperationResult> unsubscribe( std::string topic );
 
          /// @brief Publishes a payload to a topic
          /// @tparam Payload Type of the payload to publish
@@ -99,7 +109,7 @@ namespace pace
          /// @param payload Payload to publish; must be serializable to JSON via nlohmann::json
          /// @return Awaitable task
          template <typename Payload>
-         util::Task<bool> publish( const std::string& topic, const Payload& payload, bool retained = false )
+         util::Task<OperationResult> publish( const std::string& topic, const Payload& payload, bool retained = false )
          {
             const auto json = nlohmann::json( payload ).dump();
             return publish( topic, std::move( json ), retained );
@@ -110,7 +120,7 @@ namespace pace
          /// @param payload Payload to publish
          /// @param retained Whether the message should be retained by the broker
          /// @return Awaitable task
-         util::Task<bool> publish( const std::string& topic, std::string payload, bool retained = false );
+         util::Task<OperationResult> publish( const std::string& topic, std::string payload, bool retained = false );
 
          /// @brief Returns the fully qualified topic name
          /// @param topic Relative topic used internally
@@ -122,6 +132,11 @@ namespace pace
 
       private:
 
+         friend struct MqttServiceProbe;
+
+         util::Task<OperationResult> restoreSubscriptions();
+         void                        onConnected( const std::string& cause );
+
          /// @brief Paho MQTT Client callback function for incoming messages
          /// @param msg Incomming message with metadata
          void onMessage( mqtt::const_message_ptr msg );
@@ -131,7 +146,7 @@ namespace pace
          /// @param msg MQTT message containing the payload to deserialize
          /// @return Deserialized payload, or an error message if deserialization failed
          template <typename Payload>
-         static auto deserializePayload( mqtt::const_message_ptr msg ) -> util::expected<Payload, std::string>
+         static auto deserializePayload( mqtt::const_message_ptr msg ) -> util::Result<Payload>
          {
             if constexpr( std::is_same_v<Payload, std::string> )
             {
@@ -146,7 +161,8 @@ namespace pace
             }
             catch( const nlohmann::json::exception& ex )
             {
-               return util::unexpected{ fmt::format( "Failed to deserialize message payload: {}", ex.what() ) };
+               return util::unexpected{ util::makeError( util::ErrorCode::ParseFailure, "Failed to deserialize message payload: {}",
+                                                         ex.what() ) };
             }
          }
 
@@ -157,6 +173,7 @@ namespace pace
          std::string                baseTopic;
          util::AsyncTaskDispatcher& dispatcher;
 
+         mutable std::mutex                    topicHandlersMutex;
          std::map<std::string, MessageHandler> topicHandlers{};
    };
 

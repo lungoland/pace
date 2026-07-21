@@ -3,7 +3,10 @@
 #include "WinHandle.hpp"
 
 #include <cstdint>
+#include <deque>
+#include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // clang-format off
@@ -15,14 +18,14 @@ namespace pace::sensors::impl
 {
    using pace::win::UniqueHandle;
 
-   util::expected<double, std::string> readCpuTemperatureC()
+   util::Result<double> readCpuTemperatureC()
    {
-      return util::unexpected{ "cpu temperature is not implemented on windows" };
+      return util::unexpected{ util::makeError( util::ErrorCode::Unsupported, "cpu temperature is not implemented on windows" ) };
    }
 
-   util::expected<double, std::string> readMemoryUsagePercent()
+   util::Result<double> readMemoryUsagePercent()
    {
-      return util::unexpected{ "memory usage is not implemented on windows" };
+      return util::unexpected{ util::makeError( util::ErrorCode::Unsupported, "memory usage is not implemented on windows" ) };
    }
 
    std::vector<std::uint32_t> findPidsByName( const std::string& processName )
@@ -50,6 +53,77 @@ namespace pace::sensors::impl
       }
 
       return pids;
+   }
+
+   std::vector<std::uint32_t> findPidsByProcessGroup( const std::int64_t processGroupId )
+   {
+      if( processGroupId <= 0 )
+      {
+         return {};
+      }
+
+      const auto rootPid = static_cast<std::uint32_t>( processGroupId );
+
+      UniqueHandle snapshot{ CreateToolhelp32Snapshot( TH32CS_SNAPPROCESS, 0 ) };
+      if( snapshot.get() == INVALID_HANDLE_VALUE )
+      {
+         return {};
+      }
+
+      PROCESSENTRY32 entry{};
+      entry.dwSize = sizeof( entry );
+
+      std::unordered_map<std::uint32_t, std::vector<std::uint32_t>> childrenByParent;
+      bool                                                          rootExists = false;
+
+      if( Process32First( snapshot.get(), &entry ) )
+      {
+         do
+         {
+            const auto pid      = static_cast<std::uint32_t>( entry.th32ProcessID );
+            const auto parentId = static_cast<std::uint32_t>( entry.th32ParentProcessID );
+
+            if( pid == rootPid )
+            {
+               rootExists = true;
+            }
+
+            childrenByParent[ parentId ].push_back( pid );
+         }
+         while( Process32Next( snapshot.get(), &entry ) );
+      }
+
+      if( ! rootExists )
+      {
+         return {};
+      }
+
+      std::vector<std::uint32_t> groupPids;
+      std::set<std::uint32_t>    visited;
+      std::deque<std::uint32_t>  pending;
+
+      pending.push_back( rootPid );
+      while( ! pending.empty() )
+      {
+         const auto current = pending.front();
+         pending.pop_front();
+
+         if( ! visited.insert( current ).second )
+         {
+            continue;
+         }
+
+         groupPids.push_back( current );
+         if( const auto childrenIt = childrenByParent.find( current ); childrenIt != childrenByParent.end() )
+         {
+            for( const auto childPid : childrenIt->second )
+            {
+               pending.push_back( childPid );
+            }
+         }
+      }
+
+      return groupPids;
    }
 
    std::set<std::string> procsWithLoaded3DLibs()

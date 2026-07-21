@@ -26,21 +26,21 @@ namespace
       co_return value;
    }
 
-   util::Task<bool> runWhenAll( int& outInt, std::string& outString )
+   util::Task<void> runWhenAll( int& outInt, std::string& outString )
    {
       const auto [ value, text ] = co_await util::when_all( intTask( 7 ), stringTask( "pace" ) );
       outInt                     = value;
       outString                  = text;
-      co_return true;
+      co_return;
    }
 
-   util::Task<bool> runAll( bool& out )
+   util::Task<void> runAll( bool& out )
    {
       out = co_await util::all( boolTask( true ), boolTask( true ), boolTask( false ) );
-      co_return true;
+      co_return;
    }
 
-   util::Task<bool> runAllRange( bool& out )
+   util::Task<void> runAllRange( bool& out )
    {
       std::vector<util::Task<bool>> tasks;
       tasks.emplace_back( boolTask( true ) );
@@ -48,7 +48,7 @@ namespace
       tasks.emplace_back( boolTask( false ) );
 
       out = co_await util::all( std::move( tasks ) );
-      co_return true;
+      co_return;
    }
 
 } // namespace

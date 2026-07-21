@@ -26,7 +26,11 @@ namespace pace::commands
 
          [[nodiscard]] util::Task<ResponseType> execute( std::string message ) const override
          {
-            impl::sendNotification( message );
+            auto result = impl::sendNotification( message );
+            if( ! result )
+            {
+               co_return util::unexpected{ result.error() };
+            }
             co_return {};
          }
    };

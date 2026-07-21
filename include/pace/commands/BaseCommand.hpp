@@ -26,7 +26,7 @@ namespace pace::commands
       public:
 
          using EntityInterface::EntityInterface;
-         using ResponseType = util::expected<TResponse, std::string>;
+         using ResponseType = util::Result<TResponse>;
          using DataType     = std::optional<std::string>;
 
          /// @brief Type of this entity. For Command this usually is a button
@@ -45,28 +45,40 @@ namespace pace::commands
 
          /// @brief Subscribe to MQTT topics and set up handlers for this entity
          /// @return Task that completes when subscription is successful
-         util::Task<bool> subscribe() override
+         util::Task<entities::OperationResult> subscribe() override
          {
-            return mqtt.subscribe( commandTopic(),
-                                   [ this ]( mqtt::const_message_ptr msg ) -> util::Task<bool>
-                                   {
-                                      auto param    = entities::parsePayload<TRequest>( msg->get_payload_str() );
-                                      auto response = co_await execute( std::move( param ) );
+            return mqtt.subscribe(
+               commandTopic(),
+               [ this ]( mqtt::const_message_ptr msg ) -> util::Task<entities::OperationResult>
+               {
+                  auto param = entities::parsePayload<TRequest>( msg->get_payload_str() );
+                  if( ! param )
+                  {
+                     co_return util::unexpected{ util::makeError( util::ErrorCode::InvalidPayload, "Invalid payload for '{}': {}", name(),
+                                                                  param.error() ) };
+                  }
 
-                                      if( ! response )
-                                      {
-                                         logger->error( "Command {} execution failed: {}", name(), response.error() );
-                                         co_return false;
-                                      }
+                  auto response = co_await execute( std::move( *param ) );
 
-                                      /// TODO: Raw string topic
-                                      co_await mqtt.publish( fmt::format( "command/{}/status", name() ),
-                                                             entities::stringifyResponse( *response ) );
-                                      co_return true;
-                                   } );
+                  if( ! response )
+                  {
+                     co_return util::unexpected{ util::makeError( util::ErrorCode::CommandFailure, "Command {} execution failed: {}",
+                                                                  name(), response.error() ) };
+                  }
+
+                  /// TODO: Raw string topic
+                  auto publishResult = co_await mqtt.publish( fmt::format( "command/{}/status", name() ),
+                                                              entities::stringifyResponse( *response ) );
+                  if( ! publishResult )
+                  {
+                     co_return util::unexpected{ util::makeError(
+                        util::ErrorCode::PublishFailure, "Failed to publish command status for '{}': {}", name(), publishResult.error() ) };
+                  }
+                  co_return {};
+               } );
          }
 
-         util::Task<bool> unsubscribe() override
+         util::Task<entities::OperationResult> unsubscribe() override
          {
             return mqtt.unsubscribe( commandTopic() );
          }

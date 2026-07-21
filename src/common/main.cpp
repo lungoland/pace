@@ -29,10 +29,24 @@ int main()
       pace::SignalShutdownWatcher shutdownWatcher{ [ &pace, &logger ]( int signalNumber )
                                                    {
                                                       logger->info( "Received signal {}", signalNumber );
-                                                      util::sync_wait( pace.stop() );
+                                                      auto  stopTask   = pace.stop();
+                                                      auto& stopResult = stopTask.handle.promise();
+                                                      util::sync_wait( std::move( stopTask ) );
+                                                      if( auto result = stopResult.get_result(); ! result )
+                                                      {
+                                                         logger->error( "Failed to stop pace after signal: {}", result.error() );
+                                                      }
                                                    } };
 
-      dispatcher.post( "Pace::start", std::bind( &pace::Pace::start, &pace ) );
+      dispatcher.post( "Pace::start",
+                       [ &pace, &logger ]() -> util::Task<void>
+                       {
+                          if( auto result = co_await pace.start(); ! result )
+                          {
+                             logger->error( "Pace::start failed: {}", result.error() );
+                          }
+                          co_return;
+                       } );
       util::sync_wait( dispatcher.run() );
       return 0;
    }

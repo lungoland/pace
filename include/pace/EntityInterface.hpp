@@ -1,10 +1,13 @@
 #pragma once
 
+#include "util/Error.hpp"
 #include "util/Task.hpp"
+#include "util/expected.hpp"
 
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <exception>
 #include <memory>
 #include <optional>
 #include <string>
@@ -34,6 +37,8 @@ namespace nlohmann
 
 namespace pace::entities
 {
+   using OperationResult = util::VoidResult;
+
    namespace config
    {
       struct EntityConfig
@@ -69,11 +74,11 @@ namespace pace::entities
    {};
 
    template <typename TRequest>
-   TRequest parsePayload( const std::string& payload )
+   util::Result<TRequest> parsePayload( const std::string& payload )
    {
       if constexpr( std::same_as<TRequest, NoArgs> )
       {
-         return NoArgs{};
+         return TRequest{};
       }
       else if constexpr( std::same_as<TRequest, std::string> )
       {
@@ -91,17 +96,25 @@ namespace pace::entities
          }
          else
          {
-            throw std::invalid_argument( "invalid boolean payload: expected 'on', 'off', 'true', or 'false'" );
+            return util::unexpected{ util::makeError( util::ErrorCode::InvalidPayload,
+                                                      "invalid boolean payload: expected 'on', 'off', 'true', or 'false'" ) };
          }
       }
       else
       {
-         auto json = nlohmann::json::parse( payload, nullptr, false );
-         if( json.is_discarded() )
+         try
          {
-            throw std::invalid_argument( "invalid JSON payload" );
+            auto json = nlohmann::json::parse( payload, nullptr, false );
+            if( json.is_discarded() )
+            {
+               return util::unexpected{ util::makeError( util::ErrorCode::ParseFailure, "invalid JSON payload" ) };
+            }
+            return json.get<TRequest>();
          }
-         return json.get<TRequest>();
+         catch( const std::exception& ex )
+         {
+            return util::unexpected{ util::makeError( util::ErrorCode::ParseFailure, "{}", ex.what() ) };
+         }
       }
    }
 
@@ -166,19 +179,19 @@ namespace pace::entities
 
          /// @brief Subscribe to MQTT topics and set up handlers for this entity
          /// @return Task that completes when subscription is successful
-         virtual util::Task<bool> subscribe();
+         virtual util::Task<OperationResult> subscribe();
 
          /// @brief Tear down MQTT subscriptions for this entity.
          /// @return Task that completes when teardown is successful.
-         virtual util::Task<bool> unsubscribe();
+         virtual util::Task<OperationResult> unsubscribe();
 
          /// @brief Optional polling interval for entities that need periodic execution.
          /// @return Interval when polling is supported, std::nullopt otherwise.
          [[nodiscard]] virtual std::optional<std::chrono::milliseconds> pollingInterval() const;
 
          /// @brief Periodic work callback for polled entities.
-         /// @return true when work succeeds.
-         virtual util::Task<bool> poll();
+         /// @return success or error.
+         virtual util::Task<OperationResult> poll();
 
          /// @brief Publish MQTT Discovery payload for Home Assistant auto-discovery
          /// @return JSON payload in Home Assistant MQTT Discovery format, or std::nullopt if discovery not supported

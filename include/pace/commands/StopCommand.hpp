@@ -23,7 +23,11 @@ namespace pace::commands
 
          util::Task<ResponseType> execute( NoArgs ) const override
          {
-            co_await service.stop();
+            auto result = co_await service.stop();
+            if( ! result )
+            {
+               co_return util::unexpected{ result.error() };
+            }
             co_return {};
          }
 

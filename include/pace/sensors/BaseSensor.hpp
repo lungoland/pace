@@ -5,9 +5,11 @@
 
 #include "util/Task.hpp"
 
+#include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <exception>
 #include <memory>
 #include <string>
 #include <type_traits>
@@ -56,40 +58,56 @@ namespace pace::sensors
             return config.interval;
          }
 
-         util::Task<bool> poll() override
+         util::Task<entities::OperationResult> poll() override
          {
-            auto data = entities::stringifyResponse( co_await fetch() );
+            try
+            {
+               auto data = entities::stringifyResponse( co_await fetch() );
 
-            // Debounce state to avoid flooding mqtt with unchanged values
-            // But publish once in a while for newly connected clients.
-            if( debounce < MAX_DEBOUNCE && data == lastData )
-            {
-               ++debounce;
-            }
-            else
-            {
-               lastData = data;
-               debounce = 0;
-               co_await mqtt.publish( stateTopic(), lastData );
-            }
-
-            // Independently debounce and publish attributes (e.g. process lists).
-            if( auto attrs = getAttributes(); attrs.has_value() )
-            {
-               auto attrsStr = attrs->dump();
-               if( attrsDebounce < MAX_DEBOUNCE && attrsStr == lastAttrs )
+               // Debounce state to avoid flooding mqtt with unchanged values
+               // But publish once in a while for newly connected clients.
+               if( debounce < MAX_DEBOUNCE && data == lastData )
                {
-                  ++attrsDebounce;
+                  ++debounce;
                }
                else
                {
-                  lastAttrs     = attrsStr;
-                  attrsDebounce = 0;
-                  co_await mqtt.publish( attributesTopic(), lastAttrs );
+                  lastData = data;
+                  debounce = 0;
+                  if( auto result = co_await mqtt.publish( stateTopic(), lastData ); ! result )
+                  {
+                     co_return util::unexpected{ util::makeError( util::ErrorCode::PublishFailure, "Failed to publish state for '{}': {}",
+                                                                  name(), result.error() ) };
+                  }
                }
-            }
 
-            co_return true;
+               // Independently debounce and publish attributes (e.g. process lists).
+               if( auto attrs = getAttributes(); attrs.has_value() )
+               {
+                  auto attrsStr = attrs->dump();
+                  if( attrsDebounce < MAX_DEBOUNCE && attrsStr == lastAttrs )
+                  {
+                     ++attrsDebounce;
+                  }
+                  else
+                  {
+                     lastAttrs     = attrsStr;
+                     attrsDebounce = 0;
+                     if( auto result = co_await mqtt.publish( attributesTopic(), lastAttrs ); ! result )
+                     {
+                        co_return util::unexpected{ util::makeError(
+                           util::ErrorCode::PublishFailure, "Failed to publish attributes for '{}': {}", name(), result.error() ) };
+                     }
+                  }
+               }
+
+               co_return {};
+            }
+            catch( const std::exception& ex )
+            {
+               co_return util::unexpected{ util::makeError( util::ErrorCode::PollFailure, "Polling sensor '{}' failed: {}", name(),
+                                                            ex.what() ) };
+            }
          }
 
          /// @brief Fetch the sensor data. This is the main function that derived sensors

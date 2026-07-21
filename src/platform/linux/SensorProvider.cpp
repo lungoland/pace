@@ -4,9 +4,12 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <ranges>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -52,9 +55,43 @@ namespace pace::sensors::impl
 
          return std::stoll( digits );
       }
+
+      std::optional<std::int64_t> readProcessGroupId( const std::filesystem::path& statPath )
+      {
+         std::ifstream statFile{ statPath };
+         if( ! statFile )
+         {
+            return std::nullopt;
+         }
+
+         std::string statLine;
+         std::getline( statFile, statLine );
+         if( statLine.empty() )
+         {
+            return std::nullopt;
+         }
+
+         const auto rightParen = statLine.rfind( ") " );
+         if( rightParen == std::string::npos )
+         {
+            return std::nullopt;
+         }
+
+         // /proc/<pid>/stat fields after ") " start with: state, ppid, pgrp, ...
+         std::istringstream tail{ statLine.substr( rightParen + 2 ) };
+         char               state = '\0';
+         std::int64_t       ppid  = 0;
+         std::int64_t       pgrp  = 0;
+         if( ! ( tail >> state >> ppid >> pgrp ) )
+         {
+            return std::nullopt;
+         }
+
+         return pgrp;
+      }
    }
 
-   util::expected<double, std::string> readCpuTemperatureC()
+   util::Result<double> readCpuTemperatureC()
    {
       namespace fs = std::filesystem;
 
@@ -103,15 +140,15 @@ namespace pace::sensors::impl
          }
       }
 
-      return util::unexpected{ "cpu temperature source not found" };
+      return util::unexpected{ util::makeError( util::ErrorCode::NotFound, "cpu temperature source not found" ) };
    }
 
-   util::expected<double, std::string> readMemoryUsagePercent()
+   util::Result<double> readMemoryUsagePercent()
    {
       std::ifstream meminfo{ "/proc/meminfo" };
       if( ! meminfo )
       {
-         return util::unexpected{ "failed to open /proc/meminfo" };
+         return util::unexpected{ util::makeError( util::ErrorCode::PlatformFailure, "failed to open /proc/meminfo" ) };
       }
 
       long long   totalKb     = 0;
@@ -131,7 +168,7 @@ namespace pace::sensors::impl
 
       if( totalKb <= 0 || availableKb < 0 )
       {
-         return util::unexpected{ "failed to parse memory usage from /proc/meminfo" };
+         return util::unexpected{ util::makeError( util::ErrorCode::ParseFailure, "failed to parse memory usage from /proc/meminfo" ) };
       }
 
       const auto usedKb = std::max<long long>( 0, totalKb - availableKb );
@@ -162,6 +199,34 @@ namespace pace::sensors::impl
             pids.push_back( static_cast<std::uint32_t>( std::stoi( filename ) ) );
          }
       }
+      return pids;
+   }
+
+   std::vector<std::uint32_t> findPidsByProcessGroup( const std::int64_t processGroupId )
+   {
+      namespace fs = std::filesystem;
+
+      if( processGroupId <= 0 )
+      {
+         return {};
+      }
+
+      std::vector<std::uint32_t> pids;
+      for( const auto& entry : fs::directory_iterator( "/proc" ) )
+      {
+         const auto filename = entry.path().filename().string();
+         if( ! std::ranges::all_of( filename, ::isdigit ) )
+         {
+            continue;
+         }
+
+         const auto pgrp = readProcessGroupId( entry.path() / "stat" );
+         if( pgrp && *pgrp == processGroupId )
+         {
+            pids.push_back( static_cast<std::uint32_t>( std::stoi( filename ) ) );
+         }
+      }
+
       return pids;
    }
 

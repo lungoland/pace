@@ -12,12 +12,15 @@
 #include "util/Logger.hpp"
 #include "util/PeriodicScheduler.hpp"
 #include "util/Task.hpp"
+#include "util/expected.hpp"
 
 namespace pace
 {
    class Pace
    {
       public:
+
+         using OperationResult = util::VoidResult;
 
          explicit Pace( const Config& cfg, util::AsyncTaskDispatcher& dispatcher );
          Pace( const Pace& )            = delete;
@@ -28,19 +31,19 @@ namespace pace
 
          /// @brief Starts the service by connecting to MQTT and subscribing to relevant topics.
          /// @return true once all subscriptions are successful; false otherwise.
-         util::Task<bool> start();
+         util::Task<OperationResult> start();
          /// @brief Stops the service and performs any necessary cleanup.
          /// @note While not started by pace, this will also stop the dispatcher!
          /// @return true once stopped successfully; false otherwise.
-         util::Task<bool> stop();
+         util::Task<OperationResult> stop();
 
          /// @brief Adds a generic entity to the registry and scheduler if applicable.
          /// @param entity The entity to take ownership of and register.
-         util::Task<bool> addEntity( entities::EntityPtr entity );
+         util::Task<OperationResult> addEntity( entities::EntityPtr entity );
 
          /// @brief Removes an entity from the registry and scheduler if applicable.
          /// @param entityName The name of the entity to remove.
-         util::Task<bool> removeEntity( const std::string& entityName );
+         util::Task<OperationResult> removeEntity( const std::string& entityName );
 
       private:
 

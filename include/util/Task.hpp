@@ -23,6 +23,32 @@ namespace util
    const auto           taskLogger    = util::getLogger( "Task" );
    static std::uint16_t taskIdCounter = 0;
 
+   namespace detail
+   {
+      template <typename T>
+      struct result_holder
+      {
+            void return_value( T value )
+            {
+               result = std::move( value );
+            }
+            T get_result()
+            {
+               return std::move( result );
+            }
+            T result{};
+      };
+
+      template <>
+      struct result_holder<void>
+      {
+            void return_void() noexcept
+            {}
+            void get_result() noexcept
+            {}
+      };
+   } // namespace detail
+
    template <typename T>
    class Task
    {
@@ -67,7 +93,7 @@ namespace util
                {}
          };
 
-         struct task_promise
+         struct task_promise : detail::result_holder<T>
          {
                auto get_return_object()
                {
@@ -86,10 +112,6 @@ namespace util
                   return final_awaiter{};
                }
 
-               void return_value( T value )
-               {
-                  result = std::move( value );
-               }
                void unhandled_exception()
                {
                   if( ! error )
@@ -97,7 +119,6 @@ namespace util
                      error = std::current_exception();
                   }
                }
-
 
                std::shared_ptr<Executor> get_executor() const
                {
@@ -117,7 +138,6 @@ namespace util
                std::condition_variable   cv;
                bool                      done{ false };
                bool                      started{ false };
-               T                         result{};
          };
 
          explicit Task( task_handle h )
@@ -154,14 +174,14 @@ namespace util
          {
             return ! handle || handle.done();
          }
-         T await_resume()
+         decltype( auto ) await_resume()
          {
             taskLogger->trace( "'{}' await_resume", handle.promise().name );
             if( handle && handle.promise().error )
             {
                std::rethrow_exception( handle.promise().error );
             }
-            return std::move( handle.promise().result );
+            return handle.promise().get_result();
          }
          template </*Concept*/ typename Promise>
          std::coroutine_handle<> await_suspend( std::coroutine_handle<Promise> h ) noexcept

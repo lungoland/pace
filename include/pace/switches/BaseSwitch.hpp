@@ -11,6 +11,7 @@
 #include <nlohmann/json.hpp>
 
 #include <concepts>
+#include <exception>
 #include <optional>
 #include <string>
 #include <type_traits>
@@ -38,7 +39,7 @@ namespace pace::switches
 
       public:
 
-         using ResponseType = util::expected<TState, std::string>;
+         using ResponseType = util::Result<TState>;
 
          explicit BaseSwitch( MqttService& mqttService, const TConfig& cfg )
             : entities::EntityInterface( mqttService )
@@ -59,26 +60,38 @@ namespace pace::switches
          }
 
          /// @brief Subscribe to command topic and set up handler
-         util::Task<bool> subscribe() override
+         util::Task<entities::OperationResult> subscribe() override
          {
-            return mqtt.subscribe( commandTopic(),
-                                   [ this ]( mqtt::const_message_ptr msg ) -> util::Task<bool>
-                                   {
-                                      auto param    = entities::parsePayload<TState>( msg->get_payload_str() );
-                                      auto response = co_await execute( std::move( param ) );
+            return mqtt.subscribe(
+               commandTopic(),
+               [ this ]( mqtt::const_message_ptr msg ) -> util::Task<entities::OperationResult>
+               {
+                  auto param = entities::parsePayload<TState>( msg->get_payload_str() );
+                  if( ! param )
+                  {
+                     co_return util::unexpected{ util::makeError( util::ErrorCode::InvalidPayload, "Invalid payload for '{}': {}", name(),
+                                                                  param.error() ) };
+                  }
 
-                                      if( ! response )
-                                      {
-                                         logger->error( "Command {} execution failed: {}", name(), response.error() );
-                                         co_return false;
-                                      }
+                  auto response = co_await execute( std::move( *param ) );
 
-                                      co_await mqtt.publish( stateTopic(), entities::stringifyResponse( *response ) );
-                                      co_return true;
-                                   } );
+                  if( ! response )
+                  {
+                     co_return util::unexpected{ util::makeError( util::ErrorCode::CommandFailure, "Command {} execution failed: {}",
+                                                                  name(), response.error() ) };
+                  }
+
+                  if( auto publishResult = co_await mqtt.publish( stateTopic(), entities::stringifyResponse( *response ) ); ! publishResult )
+                  {
+                     co_return util::unexpected{ util::makeError(
+                        util::ErrorCode::PublishFailure, "Failed to publish switch state for '{}': {}", name(), publishResult.error() ) };
+                  }
+
+                  co_return {};
+               } );
          }
 
-         util::Task<bool> unsubscribe() override
+         util::Task<entities::OperationResult> unsubscribe() override
          {
             co_return co_await mqtt.unsubscribe( commandTopic() );
          }
@@ -88,20 +101,33 @@ namespace pace::switches
             return config.interval;
          }
 
-         util::Task<bool> poll() override
+         util::Task<entities::OperationResult> poll() override
          {
-            auto data = co_await fetch();
-
-            // Debounce data to avoid flooding mqtt with unchanged values
-            // But publish once in a while for newly connected clients.
-            if( debounce < MAX_DEBOUNCE && data == lastData )
+            try
             {
-               ++debounce;
-               co_return false;
+               auto data = co_await fetch();
+
+               // Debounce data to avoid flooding mqtt with unchanged values
+               // But publish once in a while for newly connected clients.
+               if( debounce < MAX_DEBOUNCE && data == lastData )
+               {
+                  ++debounce;
+                  co_return {};
+               }
+               lastData = data;
+               debounce = 0;
+               if( auto publishResult = co_await mqtt.publish( stateTopic(), entities::stringifyResponse( data ) ); ! publishResult )
+               {
+                  co_return util::unexpected{ util::makeError(
+                     util::ErrorCode::PublishFailure, "Failed to publish switch poll state for '{}': {}", name(), publishResult.error() ) };
+               }
+               co_return {};
             }
-            debounce = 0;
-            co_await mqtt.publish( stateTopic(), entities::stringifyResponse( data ) );
-            co_return true;
+            catch( const std::exception& ex )
+            {
+               co_return util::unexpected{ util::makeError( util::ErrorCode::PollFailure, "Polling switch '{}' failed: {}", name(),
+                                                            ex.what() ) };
+            }
          }
 
          virtual util::Task<TState>       fetch() const             = 0;
@@ -131,7 +157,7 @@ namespace pace::switches
          static constexpr int32_t MAX_DEBOUNCE = 5;
 
          /// @brief Cache the last published data to implement debounce logic
-         bool lastData{};
+         TState lastData{};
          /// @brief Counter to track how many times the same data has been returned by fetch_ to implement debounce logic
          /// TODO: Add Reset Command to reset debounce?
          int32_t debounce{};

@@ -52,6 +52,7 @@ add_library(pace_core
     ${PACE_CORE_COMMON_SOURCES}
     ${PACE_CORE_PLATFORM_SOURCES}
     include/util/Logger.hpp
+    include/util/Error.hpp
 )
 
 add_library(pace::core ALIAS pace_core)
@@ -156,6 +157,7 @@ if(PACE_BUILD_TESTS)
         find_package(Catch2 CONFIG REQUIRED)
         set(PACE_TEST_SOURCES
             tests/EntityModelTests.cpp
+            tests/MqttServiceTests.cpp
             tests/PeriodicSchedulerTests.cpp
             tests/TaskTests.cpp
             tests/TaskQueueTests.cpp

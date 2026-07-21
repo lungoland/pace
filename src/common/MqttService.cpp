@@ -9,9 +9,11 @@
 #include <mqtt/create_options.h>
 #include <mqtt/topic.h>
 
+#include <exception>
 #include <ranges>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace pace
 {
@@ -28,75 +30,179 @@ namespace pace
       , dispatcher( dispatcher_ )
    {}
 
-   util::Task<bool> MqttService::connect()
+   util::Task<MqttService::OperationResult> MqttService::connect()
    {
-      logger->info( "Connecting to MQTT broker '{}'", config.brokerUri );
-      co_await client.connect( mqtt::connect_options_builder{}
-                                  .clean_session( true )
-                                  .automatic_reconnect( true )
-                                  .user_name( config.username )
-                                  .password( config.password )
-                                  .will( mqtt::message( fmt::format( "{}availability", baseTopic ), "offline", 1, true ) )
-                                  .finalize() );
+      try
+      {
+         logger->info( "Connecting to MQTT broker '{}'", config.brokerUri );
+         co_await client.connect( mqtt::connect_options_builder{}
+                                     .clean_session( true )
+                                     .automatic_reconnect( true )
+                                     .user_name( config.username )
+                                     .password( config.password )
+                                     .will( mqtt::message( fmt::format( "{}availability", baseTopic ), "offline", 1, true ) )
+                                     .finalize() );
 
-      client.set_message_callback( std::bind( &MqttService::onMessage, this, std::placeholders::_1 ) );
-      co_await util::all( topicHandlers | std::views::keys
-                          | std::views::transform(
-                             [ this ]( const std::string& topic ) -> util::Task<bool>
-                             {
-                                co_await client.subscribe( topic, config.qos );
-                                co_return true;
-                             } ) );
-      co_await publish( "availability", std::string{ "online" }, true );
-      co_return true;
+         client.set_connected_handler( std::bind( &MqttService::onConnected, this, std::placeholders::_1 ) );
+         client.set_connection_lost_handler( [ this ]( const std::string& cause )
+                                             { logger->warn( "MQTT connection lost: {}", cause.empty() ? "unknown cause" : cause ); } );
+         client.set_message_callback( std::bind( &MqttService::onMessage, this, std::placeholders::_1 ) );
+         co_return co_await restoreSubscriptions();
+      }
+      catch( const std::exception& ex )
+      {
+         co_return util::unexpected{ util::makeError( util::ErrorCode::NotConnected, "MQTT connect failed: {}", ex.what() ) };
+      }
    }
 
-   util::Task<bool> MqttService::disconnect()
+   util::Task<MqttService::OperationResult> MqttService::disconnect()
    {
       if( ! client.is_connected() )
       {
-         co_return true;
+         co_return {};
       }
 
-      logger->info( "Disconnecting from MQTT broker '{}'", config.brokerUri );
-      co_await publish( "availability", std::string{ "offline" }, true );
-      co_await client.disconnect();
-      co_return true;
+      try
+      {
+         logger->info( "Disconnecting from MQTT broker '{}'", config.brokerUri );
+         if( auto result = co_await publish( "availability", std::string{ "offline" }, true ); ! result )
+         {
+            logger->warn( "Failed to publish offline availability before disconnect: {}", result.error() );
+         }
+         co_await client.disconnect();
+         co_return {};
+      }
+      catch( const std::exception& ex )
+      {
+         co_return util::unexpected{ util::makeError( util::ErrorCode::NotConnected, "MQTT disconnect failed: {}", ex.what() ) };
+      }
    }
 
 
-   util::Task<bool> MqttService::subscribe( std::string topic, MessageHandler handler )
+   util::Task<MqttService::OperationResult> MqttService::subscribe( std::string topic, MessageHandler handler )
    {
       auto fqTopic = fmt::format( "{}{}", baseTopic, topic );
       logger->debug( " @  {}", fqTopic );
 
-      topicHandlers.emplace( fqTopic, std::move( handler ) );
+      /// TODO: Find a better place maybe?
+      auto guardedHandler = [ this, handler = std::move( handler ) ]( mqtt::const_message_ptr msg ) -> util::Task<OperationResult>
+      {
+         try
+         {
+            co_return co_await handler( msg );
+         }
+         catch( const std::exception& ex )
+         {
+            logger->warn( "MQTT handler for '{}' failed: {}", msg->get_topic(), ex.what() );
+            co_return util::unexpected{ util::makeError( util::ErrorCode::Internal, "MQTT handler failed: {}", ex.what() ) };
+         }
+         catch( ... )
+         {
+            logger->error( "MQTT handler for '{}' failed with a non-standard exception", msg->get_topic() );
+            co_return util::unexpected{ util::makeError( util::ErrorCode::Internal, "MQTT handler failed with a non-standard exception" ) };
+         }
+      };
+
+      {
+         std::lock_guard lock{ topicHandlersMutex };
+         topicHandlers.insert_or_assign( fqTopic, std::move( guardedHandler ) );
+      }
+
       if( ! client.is_connected() )
       {
-         co_return false;
+         co_return {};
       }
-      co_await client.subscribe( fqTopic, config.qos );
-      co_return true;
+
+      try
+      {
+         co_await client.subscribe( fqTopic, config.qos );
+         co_return {};
+      }
+      catch( const std::exception& ex )
+      {
+         co_return util::unexpected{ util::makeError( util::ErrorCode::SubscriptionFailure, "MQTT subscribe failed for '{}': {}", fqTopic,
+                                                      ex.what() ) };
+      }
    }
 
-   util::Task<bool> MqttService::unsubscribe( std::string topic )
+   util::Task<MqttService::OperationResult> MqttService::unsubscribe( std::string topic )
    {
       auto fqTopic = fmt::format( "{}{}", baseTopic, topic );
       logger->debug( " @  {}", fqTopic );
 
-      co_await client.unsubscribe( fqTopic );
-      topicHandlers.erase( fqTopic );
-      co_return true;
+      {
+         std::lock_guard lock{ topicHandlersMutex };
+         topicHandlers.erase( fqTopic );
+      }
+
+      if( ! client.is_connected() )
+      {
+         co_return {};
+      }
+
+      try
+      {
+         co_await client.unsubscribe( fqTopic );
+         co_return {};
+      }
+      catch( const std::exception& ex )
+      {
+         co_return util::unexpected{ util::makeError( util::ErrorCode::SubscriptionFailure, "MQTT unsubscribe failed for '{}': {}", fqTopic,
+                                                      ex.what() ) };
+      }
+   }
+
+   util::Task<MqttService::OperationResult> MqttService::restoreSubscriptions()
+   {
+      std::vector<std::string> topics;
+      {
+         std::lock_guard lock{ topicHandlersMutex };
+         topics.reserve( topicHandlers.size() );
+         for( const auto& [ topic, _ ] : topicHandlers )
+         {
+            topics.push_back( topic );
+         }
+      }
+
+      for( const auto& topic : topics )
+      {
+         logger->debug( "Resubscribing to {}", topic );
+         try
+         {
+            co_await client.subscribe( topic, config.qos );
+         }
+         catch( const std::exception& ex )
+         {
+            co_return util::unexpected{ util::makeError( util::ErrorCode::SubscriptionFailure, "MQTT resubscribe failed for '{}': {}",
+                                                         topic, ex.what() ) };
+         }
+      }
+
+      co_return co_await publish( "availability", std::string{ "online" }, true );
+   }
+
+   void MqttService::onConnected( const std::string& cause )
+   {
+      logger->info( "MQTT connected{}", cause.empty() ? "" : fmt::format( " ({})", cause ) );
+      dispatcher.post( "MqttService::restoreSubscriptions",
+                       [ this ]() -> util::Task<void>
+                       {
+                          if( auto result = co_await restoreSubscriptions(); ! result )
+                          {
+                             logger->error( "Failed to restore MQTT subscriptions: {}", result.error() );
+                          }
+                          co_return;
+                       } );
    }
 
 
-   util::Task<bool> MqttService::publish( const std::string& topic, std::string payload, bool retained )
+   util::Task<MqttService::OperationResult> MqttService::publish( const std::string& topic, std::string payload, bool retained )
    {
       // In case the connection was teared down - i.e. StopCommand was executed, we can no longer
       // pubish messages. So just stop here.
       if( ! client.is_connected() )
       {
-         co_return false;
+         co_return util::unexpected{ util::makeError( util::ErrorCode::NotConnected, "MQTT client is not connected" ) };
       }
 
       auto fqTopic = qualifyTopic( topic );
@@ -108,8 +214,16 @@ namespace pace
       {
          logger->debug( "<-- {}: {}", fqTopic, payload );
       }
-      co_await client.publish( fqTopic, payload, config.qos, retained );
-      co_return true;
+      try
+      {
+         co_await client.publish( fqTopic, payload, config.qos, retained );
+         co_return {};
+      }
+      catch( const std::exception& ex )
+      {
+         co_return util::unexpected{ util::makeError( util::ErrorCode::PublishFailure, "MQTT publish failed for '{}': {}", fqTopic,
+                                                      ex.what() ) };
+      }
    }
 
    std::string MqttService::qualifyTopic( const std::string& topic ) const
@@ -125,24 +239,42 @@ namespace pace
 
    void MqttService::onMessage( mqtt::const_message_ptr msg )
    {
-      for( const auto& [ topicFilter, handler ] : topicHandlers )
+      std::vector<MessageHandler> matchedHandlers;
       {
-         /// Not really sure of constructing this every time ...
-         /// but cannot be stored in container as does not implement operator<
-         if( mqtt::topic_filter filter{ topicFilter }; filter.matches( msg->get_topic() ) )
+         std::lock_guard lock{ topicHandlersMutex };
+         matchedHandlers.reserve( topicHandlers.size() );
+         for( const auto& [ topicFilter, handler ] : topicHandlers )
          {
-            /// Perform Context Switch between MQTT callback thread
-            /// and our worker ... should/can this be a co_await?
-            if( msg->get_payload().size() > 100 )
+            /// Not really sure of constructing this every time ...
+            /// but cannot be stored in container as does not implement operator<
+            if( mqtt::topic_filter filter{ topicFilter }; filter.matches( msg->get_topic() ) )
             {
-               logger->debug( "--> {}: {} bytes", msg->get_topic(), msg->get_payload().size() );
+               matchedHandlers.push_back( handler );
             }
-            else
-            {
-               logger->debug( "--> {}: {}", msg->get_topic(), msg->to_string() );
-            }
-            dispatcher.post( msg->get_topic(), std::bind( handler, msg ) );
          }
+      }
+
+      for( const auto& handler : matchedHandlers )
+      {
+         /// Perform Context Switch between MQTT callback thread
+         /// and our worker ... should/can this be a co_await?
+         if( msg->get_payload().size() > 100 )
+         {
+            logger->debug( "--> {}: {} bytes", msg->get_topic(), msg->get_payload().size() );
+         }
+         else
+         {
+            logger->debug( "--> {}: {}", msg->get_topic(), msg->to_string() );
+         }
+         dispatcher.post( msg->get_topic(),
+                          [ this, handler, msg ]() -> util::Task<void>
+                          {
+                             if( auto result = co_await handler( msg ); ! result )
+                             {
+                                logger->warn( "MQTT message handler reported error for '{}': {}", msg->get_topic(), result.error() );
+                             }
+                             co_return;
+                          } );
       }
    }
 

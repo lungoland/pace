@@ -1,5 +1,7 @@
 #pragma once
 
+#include "util/Error.hpp"
+
 #include <string>
 
 // C++23 and later provide std::expected in <expected>
@@ -12,6 +14,11 @@ namespace util
 
    template <typename T, typename E>
    using expected = std::expected<T, E>;
+
+   template <typename T>
+   using Result = expected<T, Error>;
+
+   using VoidResult = Result<void>;
 
    using std::unexpected;
 
@@ -28,6 +35,11 @@ namespace util
    template <typename T, typename E>
    using expected = std::expected<T, E>;
 
+   template <typename T>
+   using Result = expected<T, Error>;
+
+   using VoidResult = Result<void>;
+
    using std::unexpected;
 
 } // namespace util
@@ -41,6 +53,11 @@ namespace util
 
    template <typename T, typename E>
    using expected = std::experimental::expected<T, E>;
+
+   template <typename T>
+   using Result = expected<T, Error>;
+
+   using VoidResult = Result<void>;
 
    using std::experimental::unexpected;
 

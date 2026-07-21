@@ -8,6 +8,8 @@
 #include <fmt/ranges.h>
 #include <nlohmann/json.hpp>
 
+#include <cstdint>
+#include <optional>
 #include <string>
 
 namespace pace::switches
@@ -57,26 +59,62 @@ namespace pace::switches
 
             if( request )
             {
-               // TODO: On Linux systems this is a bit more tricky.
-               // By design we will be the parent of the forked process.
-               // In theory this also means that if we die or stop, we will take down the child as well.
-               // Maybe systemd has some wraper?
-               // TODO: Also it seems that we cannot SIGTERM the child??
-               // TODO: Maybe firefox is just special as it surrived termination of pace
                logger->debug( "Starting process '{}' with image path '{}'", processName, config.imagePath );
-               commands::impl::spawnNewProcess( config.imagePath );
+               auto spawnResult = commands::impl::spawnNewProcessGroup( config.imagePath );
+               if( ! spawnResult )
+               {
+                  logger->warn( "Failed to spawn process '{}' in dedicated process group: {}. Falling back to regular spawn.", processName,
+                                spawnResult.error() );
+
+                  auto fallbackSpawnResult = commands::impl::spawnNewProcess( config.imagePath );
+                  if( ! fallbackSpawnResult )
+                  {
+                     co_return util::unexpected{ fallbackSpawnResult.error() };
+                  }
+
+                  managedProcessGroupId.reset();
+                  co_return true;
+               }
+
+               managedProcessGroupId = *spawnResult;
+               logger->debug( "Process '{}' started with PGID '{}'", processName, *managedProcessGroupId );
                co_return true;
             }
             else
             {
-               logger->debug( "Killing process '{}' by name", processName );
-               co_await commands::impl::killProcessByName( processName );
+               util::VoidResult killResult = util::unexpected{ "no managed process group present" };
+
+               if( managedProcessGroupId )
+               {
+                  logger->debug( "Killing process '{}' by managed PGID '{}'", processName, *managedProcessGroupId );
+                  killResult = co_await commands::impl::killProcessGroup( *managedProcessGroupId );
+               }
+               else
+               {
+                  logger->warn( "No managed PGID for process '{}'; falling back to name-based kill", processName );
+                  killResult = co_await commands::impl::killProcessByName( processName );
+               }
+
+               if( ! killResult )
+               {
+                  co_return util::unexpected{ killResult.error() };
+               }
+
+               managedProcessGroupId.reset();
                co_return false;
             }
          }
 
          util::Task<bool> fetch() const override
          {
+            if( managedProcessGroupId )
+            {
+               auto pids = sensors::impl::findPidsByProcessGroup( *managedProcessGroupId );
+               logger->trace( "Relevant PIDs for process '{}' in PGID '{}': [{}]", processName, *managedProcessGroupId,
+                              fmt::join( pids, ", " ) );
+               co_return ! pids.empty();
+            }
+
             auto pids = sensors::impl::findPidsByName( processName );
             logger->trace( "Relevant PIDs for process '{}': [{}]", processName, fmt::join( pids, ", " ) );
             co_return pids.size() > 0;
@@ -84,7 +122,8 @@ namespace pace::switches
 
       private:
 
-         std::string processName;
+         std::string                 processName;
+         std::optional<std::int64_t> managedProcessGroupId;
    };
 
 } // namespace pace::switches

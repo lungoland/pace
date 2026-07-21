@@ -11,14 +11,14 @@ namespace pace::entities
       : mqtt( mqttService )
    {}
 
-   util::Task<bool> EntityInterface::subscribe()
+   util::Task<OperationResult> EntityInterface::subscribe()
    {
-      co_return true;
+      co_return {};
    }
 
-   util::Task<bool> EntityInterface::unsubscribe()
+   util::Task<OperationResult> EntityInterface::unsubscribe()
    {
-      co_return true;
+      co_return {};
    }
 
    std::optional<std::chrono::milliseconds> EntityInterface::pollingInterval() const
@@ -26,9 +26,9 @@ namespace pace::entities
       return std::nullopt;
    }
 
-   util::Task<bool> EntityInterface::poll()
+   util::Task<OperationResult> EntityInterface::poll()
    {
-      co_return true;
+      co_return {};
    }
 
    nlohmann::json EntityInterface::getDiscoveryPayload() const

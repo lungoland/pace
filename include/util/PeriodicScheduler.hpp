@@ -29,7 +29,7 @@ namespace util
          {
                std::string                 name{};
                std::chrono::milliseconds   interval{};
-               std::function<Task<bool>()> execute{};
+               std::function<Task<void>()> execute{};
          };
 
          explicit PeriodicScheduler( std::vector<Job> configuredJobs = {} )
@@ -85,7 +85,7 @@ namespace util
          /// @brief Async stop — signals the scheduler and co_awaits completion.
          /// Must be called from a coroutine running on the same executor as the scheduler
          /// (e.g. inside a Task dispatched on the AsyncTaskDispatcher).
-         Task<bool> stopAsync()
+         Task<void> stopAsync()
          {
             std::call_once( stopOnce, [ this ] { stopSource.request_stop(); } );
             if( schedulerTask.has_value() )
@@ -98,7 +98,7 @@ namespace util
                // handle be the sole thing that drives the scheduler to completion.
                co_await schedulerTask->await_passively();
             }
-            co_return true;
+            co_return;
          }
 
          /// @brief Synchronous stop - blocks until the scheduler coroutine finishes.
@@ -120,7 +120,7 @@ namespace util
          /// @brief Runs the scheduler loop as a coroutine on the caller's executor.
          /// @note stopSource_ must be signalled to exit the loop.
          /// TODO split run into smaller functions .. I think
-         Task<bool> run()
+         Task<void> run()
          {
             const std::stop_token stopToken = stopSource.get_token();
             try
@@ -186,7 +186,7 @@ namespace util
                logger->critical( "runtime error: {}", ex.what() );
                throw;
             }
-            co_return true;
+            co_return;
          }
 
          using Clock = std::chrono::steady_clock;
@@ -195,7 +195,7 @@ namespace util
                const Job*                  job{ nullptr };
                std::chrono::milliseconds   interval{};
                Clock::time_point           nextDue{};
-               std::function<Task<bool>()> execute;
+               std::function<Task<void>()> execute;
          };
 
          std::stop_token syncSchedules( std::vector<JobSchedule>& schedules )
@@ -245,7 +245,7 @@ namespace util
          std::stop_source          stopSource{};
          std::stop_source          wakeSource{};
          std::vector<Job>          jobs{};
-         std::optional<Task<bool>> schedulerTask{};
+         std::optional<Task<void>> schedulerTask{};
          std::once_flag            stopOnce;
          std::once_flag            startOnce;
          AsyncTaskDispatcher*      dispatcher{ nullptr };

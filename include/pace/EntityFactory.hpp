@@ -7,6 +7,7 @@
 
 #include "util/Logger.hpp"
 #include "util/Task.hpp"
+#include "util/expected.hpp"
 
 namespace pace
 {
@@ -17,17 +18,19 @@ namespace pace
    {
       public:
 
+         using OperationResult = util::VoidResult;
+
          explicit EntityFactory( Pace& pace, MqttService& mqtt );
 
          /// @brief Subscribes to entity config topics and creates/updates entities.
          /// Topic formats:
          /// - entity/{entityName}/config (full config as JSON object)
          /// - entity/{entityName}/config/{configNode} (individual field updates)
-         util::Task<bool> subscribe();
+         util::Task<OperationResult> subscribe();
 
       private:
 
-         util::Task<bool> onFullConfig( const std::string& name, nlohmann::json config );
+         util::Task<OperationResult> onFullConfig( const std::string& name, nlohmann::json config );
 
          util::Logger logger = util::getLogger( "EntityFactory" );
 

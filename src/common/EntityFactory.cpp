@@ -13,6 +13,7 @@
 
 #include "pace/switches/ProcessSwitch.hpp"
 
+#include <fmt/format.h>
 #include <mqtt/topic_matcher.h>
 #include <spdlog/spdlog.h>
 
@@ -33,33 +34,40 @@ namespace
    }
 
    template <typename TEntity>
-   pace::entities::EntityPtr tryBuildEntity( pace::Pace& pace, pace::MqttService& mqtt, const nlohmann::json& )
+   util::Result<pace::entities::EntityPtr> tryBuildEntity( pace::Pace& pace, pace::MqttService& mqtt, const nlohmann::json& )
    {
-      if constexpr( std::is_constructible_v<TEntity, pace::MqttService&, pace::Pace&> )
+      try
       {
-         return std::make_unique<TEntity>( mqtt, pace );
+         if constexpr( std::is_constructible_v<TEntity, pace::MqttService&, pace::Pace&> )
+         {
+            return std::make_unique<TEntity>( mqtt, pace );
+         }
+         else
+         {
+            return std::make_unique<TEntity>( mqtt );
+         }
       }
-      else
+      catch( const std::exception& ex )
       {
-         return std::make_unique<TEntity>( mqtt );
+         return util::unexpected{ util::makeError( util::ErrorCode::ConfigurationFailure, "{}", ex.what() ) };
       }
    }
 
    template <typename TEntity, typename TConfig>
-   pace::entities::EntityPtr tryBuildEntity( pace::Pace&, pace::MqttService& mqtt, const nlohmann::json& config )
+   util::Result<pace::entities::EntityPtr> tryBuildEntity( pace::Pace&, pace::MqttService& mqtt, const nlohmann::json& config )
    {
       try
       {
          auto cfg = config.get<TConfig>();
          return std::make_unique<TEntity>( mqtt, cfg );
       }
-      catch( const nlohmann::json::exception& e )
+      catch( const std::exception& ex )
       {
-         return nullptr;
+         return util::unexpected{ util::makeError( util::ErrorCode::ConfigurationFailure, "{}", ex.what() ) };
       }
    }
 
-   using EntityCreator = std::function<pace::entities::EntityPtr( pace::Pace&, pace::MqttService&, const nlohmann::json& )>;
+   using EntityCreator = std::function<util::Result<pace::entities::EntityPtr>( pace::Pace&, pace::MqttService&, const nlohmann::json& )>;
 
    template <typename T>
    concept HasConfig = requires { typename T::Config; };
@@ -103,82 +111,116 @@ namespace pace
       , entityConfigs()
    {}
 
-   util::Task<bool> EntityFactory::subscribe()
+   util::Task<EntityFactory::OperationResult> EntityFactory::subscribe()
    {
-      co_await mqtt.subscribe( "entity/+/config",
-                               [ this ]( const std::string& topic, const std::string& data ) -> util::Task<bool>
-                               {
-                                  auto parts = mqtt::topic::split( topic );
-                                  // Is this even possible?
-                                  if( parts.size() != 5 )
-                                  {
-                                     co_return false;
-                                  }
+      if( auto fullSubscription = co_await mqtt.subscribe(
+             "entity/+/config",
+             [ this ]( const std::string& topic, const std::string& data ) -> util::Task<OperationResult>
+             {
+                auto parts = mqtt::topic::split( topic );
+                // Is this even possible?
+                if( parts.size() != 5 )
+                {
+                   co_return util::unexpected{ util::makeError( util::ErrorCode::InvalidPayload,
+                                                                "Invalid entity config topic '{}': expected 5 segments", topic ) };
+                }
 
-                                  const auto& entityName = parts[ 3 ];
-                                  auto        json       = nlohmann::json::parse( data, nullptr, false );
-                                  if( json.is_discarded() )
-                                  {
-                                     logger->warn( "Invalid JSON in full config for entity {}", entityName );
-                                     co_return false;
-                                  }
-                                  co_return co_await onFullConfig( entityName, std::move( json ) );
-                               } );
+                const auto& entityName = parts[ 3 ];
+                auto        json       = nlohmann::json::parse( data, nullptr, false );
+                if( json.is_discarded() )
+                {
+                   co_return util::unexpected{ util::makeError( util::ErrorCode::ParseFailure,
+                                                                "Invalid JSON in full config for entity '{}'", entityName ) };
+                }
+                co_return co_await onFullConfig( entityName, std::move( json ) );
+             } );
+          ! fullSubscription )
+      {
+         co_return util::unexpected{ util::makeError( util::ErrorCode::SubscriptionFailure,
+                                                      "Failed to subscribe to full entity config topic: {}", fullSubscription.error() ) };
+      }
 
-      co_await mqtt.subscribe( "entity/+/config/+",
-                               [ this ]( const std::string& topic, const std::string& data ) -> util::Task<bool>
-                               {
-                                  auto parts = mqtt::topic::split( topic );
-                                  // is this even possible?
-                                  if( parts.size() != 6 )
-                                  {
-                                     co_return false;
-                                  }
+      if( auto partialSubscription = co_await mqtt.subscribe(
+             "entity/+/config/+",
+             [ this ]( const std::string& topic, const std::string& data ) -> util::Task<OperationResult>
+             {
+                auto parts = mqtt::topic::split( topic );
+                // is this even possible?
+                if( parts.size() != 6 )
+                {
+                   co_return util::unexpected{ util::makeError( util::ErrorCode::InvalidPayload,
+                                                                "Invalid partial entity config topic '{}': expected 6 segments", topic ) };
+                }
 
-                                  const auto& entityName = parts[ 3 ];
-                                  const auto& configNode = parts.back();
+                const auto& entityName = parts[ 3 ];
+                const auto& configNode = parts.back();
 
-                                  auto& partialConfig         = entityConfigs[ entityName ];
-                                  partialConfig[ configNode ] = parseConfigValue( data );
-                                  if( ! partialConfig.contains( "type" ) )
-                                  {
-                                     co_return false;
-                                  }
-                                  co_return co_await onFullConfig( entityName, partialConfig );
-                               } );
-      co_return true;
+                auto& partialConfig         = entityConfigs[ entityName ];
+                partialConfig[ configNode ] = parseConfigValue( data );
+                if( ! partialConfig.contains( "type" ) )
+                {
+                   co_return {};
+                }
+                co_return co_await onFullConfig( entityName, partialConfig );
+             } );
+          ! partialSubscription )
+      {
+         co_return util::unexpected{ util::makeError(
+            util::ErrorCode::SubscriptionFailure, "Failed to subscribe to partial entity config topic: {}", partialSubscription.error() ) };
+      }
+
+      co_return {};
    }
 
-   util::Task<bool> EntityFactory::onFullConfig( const std::string& name, nlohmann::json config )
+   util::Task<EntityFactory::OperationResult> EntityFactory::onFullConfig( const std::string& name, nlohmann::json config )
    {
-      if( ! config.contains( "type" ) || ! config[ "type" ].is_string() )
+      try
       {
-         logger->info( "Config for {} missing or invalid 'type' field", name );
-         co_await pace.removeEntity( name );
-         co_return false;
-      }
-      const auto& type = config[ "type" ].get<std::string>();
-      auto        it   = entityCreators.find( type );
-      if( it == entityCreators.end() )
-      {
-         logger->warn( "Unknown entity type: {}", type );
-         co_await pace.removeEntity( name );
-         co_return false;
-      }
+         if( ! config.contains( "type" ) || ! config[ "type" ].is_string() )
+         {
+            logger->info( "Config for {} missing or invalid 'type' field", name );
+            if( auto removeResult = co_await pace.removeEntity( name ); ! removeResult )
+            {
+               co_return util::unexpected{ util::makeError( util::ErrorCode::EntityLifecycleFailure, "Failed to remove entity '{}': {}",
+                                                            name, removeResult.error() ) };
+            }
+            co_return util::unexpected{ util::makeError( util::ErrorCode::ConfigurationFailure,
+                                                         "Config for '{}' missing or invalid 'type' field", name ) };
+         }
+         const auto& type = config[ "type" ].get<std::string>();
+         auto        it   = entityCreators.find( type );
+         if( it == entityCreators.end() )
+         {
+            logger->warn( "Unknown entity type: {}", type );
+            if( auto removeResult = co_await pace.removeEntity( name ); ! removeResult )
+            {
+               co_return util::unexpected{ util::makeError( util::ErrorCode::EntityLifecycleFailure,
+                                                            "Failed to remove unknown entity '{}': {}", name, removeResult.error() ) };
+            }
+            co_return util::unexpected{ util::makeError( util::ErrorCode::Unsupported, "Unknown entity type '{}' for '{}'", type, name ) };
+         }
 
-      // before updating, remove the existing entity
-      co_await pace.removeEntity( name );
+         // before updating, remove the existing entity
+         if( auto removeResult = co_await pace.removeEntity( name ); ! removeResult )
+         {
+            co_return util::unexpected{ util::makeError( util::ErrorCode::EntityLifecycleFailure,
+                                                         "Failed to remove existing entity '{}': {}", name, removeResult.error() ) };
+         }
 
-      config[ "name" ] = name;
-      auto entity      = it->second( pace, mqtt, config );
-      if( entity )
-      {
-         co_return co_await pace.addEntity( std::move( entity ) );
+         config[ "name" ]  = name;
+         auto entityResult = it->second( pace, mqtt, config );
+         if( ! entityResult )
+         {
+            co_return util::unexpected{ util::makeError(
+               util::ErrorCode::ConfigurationFailure, "Config for '{}' of type '{}' is invalid: {}", name, type, entityResult.error() ) };
+         }
+
+         co_return co_await pace.addEntity( std::move( *entityResult ) );
       }
-      else
+      catch( const std::exception& ex )
       {
-         logger->info( "Config for {} of 'type' {} is invalid", name, type );
+         co_return util::unexpected{ util::makeError( util::ErrorCode::ConfigurationFailure, "Failed to apply full config for '{}': {}",
+                                                      name, ex.what() ) };
       }
-      co_return false;
    }
 } // namespace pace

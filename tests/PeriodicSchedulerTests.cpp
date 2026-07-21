@@ -19,7 +19,7 @@ namespace
          util::AsyncTaskDispatcher       dispatcher;
          util::PeriodicScheduler         scheduler;
          std::shared_ptr<util::Executor> executor;
-         util::Task<bool>                dispatcherTask;
+         util::Task<void>                dispatcherTask;
          std::thread                     executorThread;
 
          explicit SchedulerDriver()
@@ -67,7 +67,7 @@ TEST_CASE( "scheduler fires job after interval", "[scheduler]" )
    driver.scheduler.addJob( util::PeriodicScheduler::Job{
       .name     = "counter",
       .interval = std::chrono::milliseconds{ 50 },
-      .execute  = [ & ]() -> util::Task<bool>
+      .execute  = [ & ]() -> util::Task<void>
       {
          ++count;
          if( ! promiseSet )
@@ -75,7 +75,7 @@ TEST_CASE( "scheduler fires job after interval", "[scheduler]" )
             promiseSet = true;
             firedPromise.set_value();
          }
-         co_return true;
+         co_return;
       },
    } );
 
@@ -95,7 +95,7 @@ TEST_CASE( "scheduler fires job multiple times", "[scheduler]" )
    driver.scheduler.addJob( util::PeriodicScheduler::Job{
       .name     = "repeater",
       .interval = std::chrono::milliseconds{ 40 },
-      .execute  = [ & ]() -> util::Task<bool>
+      .execute  = [ & ]() -> util::Task<void>
       {
          int c = ++count;
          if( c >= 3 && ! promiseSet )
@@ -103,7 +103,7 @@ TEST_CASE( "scheduler fires job multiple times", "[scheduler]" )
             promiseSet = true;
             enoughFired.set_value();
          }
-         co_return true;
+         co_return;
       },
    } );
 
@@ -123,7 +123,7 @@ TEST_CASE( "scheduler stops firing after removeJob", "[scheduler]" )
    driver.scheduler.addJob( util::PeriodicScheduler::Job{
       .name     = "removable",
       .interval = std::chrono::milliseconds{ 30 },
-      .execute  = [ & ]() -> util::Task<bool>
+      .execute  = [ & ]() -> util::Task<void>
       {
          ++count;
          if( ! promiseSet )
@@ -131,7 +131,7 @@ TEST_CASE( "scheduler stops firing after removeJob", "[scheduler]" )
             promiseSet = true;
             firstFire.set_value();
          }
-         co_return true;
+         co_return;
       },
    } );
 
@@ -159,7 +159,7 @@ TEST_CASE( "scheduler handles multiple concurrent jobs", "[scheduler]" )
    driver.scheduler.addJob( util::PeriodicScheduler::Job{
       .name     = "jobA",
       .interval = std::chrono::milliseconds{ 30 },
-      .execute  = [ & ]() -> util::Task<bool>
+      .execute  = [ & ]() -> util::Task<void>
       {
          ++countA;
          if( countA >= 1 && countB >= 1 && ! promiseSet )
@@ -167,14 +167,14 @@ TEST_CASE( "scheduler handles multiple concurrent jobs", "[scheduler]" )
             promiseSet = true;
             bothFired.set_value();
          }
-         co_return true;
+         co_return;
       },
    } );
 
    driver.scheduler.addJob( util::PeriodicScheduler::Job{
       .name     = "jobB",
       .interval = std::chrono::milliseconds{ 50 },
-      .execute  = [ & ]() -> util::Task<bool>
+      .execute  = [ & ]() -> util::Task<void>
       {
          ++countB;
          if( countA >= 1 && countB >= 1 && ! promiseSet )
@@ -182,7 +182,7 @@ TEST_CASE( "scheduler handles multiple concurrent jobs", "[scheduler]" )
             promiseSet = true;
             bothFired.set_value();
          }
-         co_return true;
+         co_return;
       },
    } );
 
@@ -200,10 +200,10 @@ TEST_CASE( "scheduler does not fire before interval elapses", "[scheduler]" )
    driver.scheduler.addJob( util::PeriodicScheduler::Job{
       .name     = "slow",
       .interval = std::chrono::seconds{ 60 },
-      .execute  = [ & ]() -> util::Task<bool>
+      .execute  = [ & ]() -> util::Task<void>
       {
          ++count;
-         co_return true;
+         co_return;
       },
    } );
 
@@ -226,7 +226,7 @@ TEST_CASE( "scheduler can add job after start", "[scheduler]" )
    driver.scheduler.addJob( util::PeriodicScheduler::Job{
       .name     = "late_job",
       .interval = std::chrono::milliseconds{ 40 },
-      .execute  = [ & ]() -> util::Task<bool>
+      .execute  = [ & ]() -> util::Task<void>
       {
          ++count;
          if( ! promiseSet )
@@ -234,7 +234,7 @@ TEST_CASE( "scheduler can add job after start", "[scheduler]" )
             promiseSet = true;
             fired.set_value();
          }
-         co_return true;
+         co_return;
       },
    } );
 
